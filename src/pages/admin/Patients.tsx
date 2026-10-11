@@ -6,11 +6,16 @@ import {
   Calendar,
   FileText,
   Clock,
-  MessageSquare,
   Image as ImageIcon,
   X,
   Loader2,
   ZoomIn,
+  Stethoscope,
+  Syringe,
+  Pill,
+  Activity,
+  CheckCircle2,
+  FileCheck2,
 } from "lucide-react";
 import { AdminLayout } from "../../components/admin/AdminLayout";
 import { appointmentService } from "../../services/appointmentService";
@@ -99,6 +104,30 @@ export default function Patients() {
         p.barangay.toLowerCase().includes(term)
     );
   }, [patientRecords, searchTerm]);
+
+  // Helper para sa icon at badge ng isinagawang procedure
+  const getProcedureMeta = (reason: string) => {
+    const lower = reason.toLowerCase();
+    if (lower.includes("vaccin")) {
+      return {
+        icon: Syringe,
+        badgeBg: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800",
+        label: "Immunization & Vaccine Administration",
+      };
+    }
+    if (lower.includes("medicin") || lower.includes("gamot")) {
+      return {
+        icon: Pill,
+        badgeBg: "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300 dark:border-amber-800",
+        label: "Pharmaceutical Prescription & Dispensing",
+      };
+    }
+    return {
+      icon: Stethoscope,
+      badgeBg: "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border-blue-300 dark:border-blue-800",
+      label: "General Clinical Diagnosis & Examination",
+    };
+  };
 
   return (
     <AdminLayout
@@ -203,23 +232,28 @@ export default function Patients() {
           </div>
         )}
 
-        {/* MODAL 1: PATIENT CONSULTATION HISTORY & PAST REMARKS */}
+        {/* MODAL 1: PATIENT CONSULTATION HISTORY & PROCEDURE PREVIEW */}
         {selectedPatient && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div
               className="absolute inset-0 bg-navy-950/60 backdrop-blur-sm"
               onClick={() => setSelectedPatient(null)}
             />
-            <div className="relative flex max-h-[90vh] w-full max-w-3xl flex-col rounded-3xl border border-navy-100 bg-white shadow-2xl dark:border-white/10 dark:bg-navy-900">
+            <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col rounded-3xl border border-navy-100 bg-white shadow-2xl dark:border-white/10 dark:bg-navy-900">
               {/* Modal Header */}
               <div className="flex items-center justify-between border-b border-navy-100 px-6 py-4 dark:border-white/10">
-                <div>
-                  <h2 className="font-display text-xl font-bold text-navy-900 dark:text-white">
-                    Medical Consultation Records
-                  </h2>
-                  <p className="text-xs text-ink-500 dark:text-white/60">
-                    Patient: <strong className="text-navy-900 dark:text-white">{selectedPatient.patientName}</strong> • {selectedPatient.contactNumber} • {selectedPatient.barangay}
-                  </p>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
+                    <Activity className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h2 className="font-display text-xl font-bold text-navy-900 dark:text-white">
+                      Medical Records & Procedure Details
+                    </h2>
+                    <p className="text-xs text-ink-500 dark:text-white/60">
+                      Patient: <strong className="text-navy-900 dark:text-white">{selectedPatient.patientName}</strong> • {selectedPatient.contactNumber} • {selectedPatient.barangay}
+                    </p>
+                  </div>
                 </div>
                 <button
                   onClick={() => setSelectedPatient(null)}
@@ -230,86 +264,109 @@ export default function Patients() {
               </div>
 
               {/* Modal Body / History List */}
-              <div className="flex-1 space-y-4 overflow-y-auto p-6">
-                {selectedPatient.history.map((record) => (
-                  <div
-                    key={record.id}
-                    className="rounded-2xl border border-navy-100 bg-navy-50/40 p-4 dark:border-white/10 dark:bg-white/5"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-navy-100 pb-2.5 dark:border-white/10">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400">
-                          {record.id}
-                        </span>
-                        <span className="rounded-md bg-navy-100 px-2 py-0.5 text-xs font-bold text-navy-800 dark:bg-white/10 dark:text-white">
-                          {record.reason}
-                        </span>
-                        <span
-                          className={`rounded-md px-2 py-0.5 text-[11px] font-bold ${
-                            record.status === "Completed"
-                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
-                              : "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300"
-                          }`}
-                        >
-                          {record.status}
-                        </span>
-                      </div>
+              <div className="flex-1 space-y-5 overflow-y-auto p-6">
+                {selectedPatient.history.map((record) => {
+                  const meta = getProcedureMeta(record.reason);
+                  const ProcedureIcon = meta.icon;
 
-                      <div className="flex items-center gap-3 text-xs font-medium text-ink-500 dark:text-white/60">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="h-3.5 w-3.5" />
-                          {record.date || "N/A"}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-3.5 w-3.5" />
-                          {record.time || "N/A"}
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Clinical Remarks Section */}
-                    <div className="mt-3 space-y-3">
-                      <div className="flex items-start gap-2">
-                        <MessageSquare className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
-                        <div className="flex-1">
-                          <span className="text-xs font-bold uppercase tracking-wider text-ink-500 dark:text-white/60">
-                            Clinical Remarks / Prescriptions Given:
+                  return (
+                    <div
+                      key={record.id}
+                      className="rounded-2xl border border-navy-200/80 bg-navy-50/30 p-5 dark:border-white/10 dark:bg-white/5 space-y-4"
+                    >
+                      {/* Top Header of Ticket */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-navy-100 pb-3 dark:border-white/10">
+                        <div className="flex items-center gap-2.5">
+                          <span className="font-mono text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/50 px-2.5 py-1 rounded-lg border border-blue-200 dark:border-blue-900/50">
+                            Ref: {record.id}
                           </span>
-                          <p className="mt-0.5 text-xs text-navy-900 dark:text-white whitespace-pre-line bg-white dark:bg-navy-800/80 p-2.5 rounded-xl border border-navy-100 dark:border-white/10">
+                          <span
+                            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-bold ${meta.badgeBg}`}
+                          >
+                            <ProcedureIcon className="h-3.5 w-3.5" />
+                            {record.reason}
+                          </span>
+                          <span
+                            className={`rounded-lg px-2.5 py-1 text-xs font-bold ${
+                              record.status === "Completed"
+                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300"
+                                : "bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300"
+                            }`}
+                          >
+                            <CheckCircle2 className="inline h-3 w-3 mr-1" />
+                            {record.status}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-3 text-xs font-medium text-ink-500 dark:text-white/60">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3.5 w-3.5 text-blue-600" />
+                            {record.date || "N/A"}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5 text-blue-600" />
+                            {record.time || "N/A"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* PROCEDURE DETAILS PREVIEW CARD */}
+                      <div className="rounded-xl border border-blue-100 bg-white p-4 shadow-xs dark:border-white/10 dark:bg-navy-800/60">
+                        <div className="flex items-center gap-2 mb-2 text-xs font-black uppercase tracking-wider text-blue-700 dark:text-blue-400">
+                          <FileCheck2 className="h-4 w-4" />
+                          Conducted Clinical Procedure: {meta.label}
+                        </div>
+
+                        {/* Intake Complaint Notes (kung meron) */}
+                        {record.notes && (
+                          <div className="mb-3 rounded-lg bg-slate-50 p-2.5 text-xs text-slate-700 dark:bg-white/5 dark:text-slate-300">
+                            <span className="font-bold text-slate-500 dark:text-slate-400 block mb-0.5">
+                              Patient Complaint / Pre-consultation Note:
+                            </span>
+                            {record.notes}
+                          </div>
+                        )}
+
+                        {/* Clinical Remarks & Treatment Prescriptions */}
+                        <div>
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-ink-500 dark:text-white/60 block mb-1">
+                            Doctor / Healthcare Worker Treatment & Remarks:
+                          </span>
+                          <p className="text-xs text-navy-900 dark:text-white whitespace-pre-line bg-navy-50/60 dark:bg-navy-900/80 p-3 rounded-xl border border-navy-100 dark:border-white/10">
                             {record.remarks || (
                               <span className="italic text-ink-400 dark:text-white/40">
-                                No remarks provided for this session.
+                                Walang naitalang karagdagang clinical remarks.
                               </span>
                             )}
                           </p>
                         </div>
                       </div>
 
-                      {/* INLINE IMAGE PREVIEWS (Thumbnails na puwedeng i-click para lumaki) */}
+                      {/* INLINE IMAGE PREVIEWS */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                         {/* Consultation Proof Photo */}
                         {record.completionPhotoUrl ? (
                           <div className="flex flex-col gap-1.5">
                             <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
-                              <ImageIcon className="h-3 w-3" /> Consultation Proof
+                              <ImageIcon className="h-3 w-3" /> Procedure & Consultation Proof Photo
                             </span>
                             <div
                               onClick={() =>
                                 setPreviewImage({
                                   url: record.completionPhotoUrl!,
-                                  title: `Consultation Proof - ${record.patientName} (${record.date})`,
+                                  title: `Procedure Proof - ${record.patientName} (${record.date} - ${record.reason})`,
                                 })
                               }
-                              className="group relative h-32 w-full cursor-pointer overflow-hidden rounded-xl border border-emerald-300/60 bg-black/5 dark:border-emerald-800/40"
+                              className="group relative h-36 w-full cursor-pointer overflow-hidden rounded-xl border border-emerald-300/60 bg-black/5 dark:border-emerald-800/40"
                             >
                               <img
                                 src={record.completionPhotoUrl}
-                                alt="Consultation Proof"
+                                alt="Procedure Proof"
                                 className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                               />
-                              <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100">
-                                <span className="inline-flex items-center gap-1 rounded-lg bg-black/70 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur-sm">
-                                  <ZoomIn className="h-3.5 w-3.5" /> Preview
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
+                                <span className="inline-flex items-center gap-1.5 rounded-lg bg-black/75 px-3 py-1.5 text-xs font-bold text-white backdrop-blur-sm">
+                                  <ZoomIn className="h-3.5 w-3.5" /> Enlarge Image
                                 </span>
                               </div>
                             </div>
@@ -320,25 +377,25 @@ export default function Patients() {
                         {record.idPhotoUrl ? (
                           <div className="flex flex-col gap-1.5">
                             <span className="text-[11px] font-bold text-blue-700 dark:text-blue-400 flex items-center gap-1">
-                              <FileText className="h-3 w-3" /> PhilSys / Valid ID
+                              <FileText className="h-3 w-3" /> PhilSys / Identity Proof
                             </span>
                             <div
                               onClick={() =>
                                 setPreviewImage({
                                   url: record.idPhotoUrl!,
-                                  title: `PhilSys / Valid ID - ${record.patientName}`,
+                                  title: `PhilSys ID - ${record.patientName}`,
                                 })
                               }
-                              className="group relative h-32 w-full cursor-pointer overflow-hidden rounded-xl border border-blue-300/60 bg-black/5 dark:border-blue-800/40"
+                              className="group relative h-36 w-full cursor-pointer overflow-hidden rounded-xl border border-blue-300/60 bg-black/5 dark:border-blue-800/40"
                             >
                               <img
                                 src={record.idPhotoUrl}
                                 alt="PhilSys ID"
                                 className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                               />
-                              <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100">
-                                <span className="inline-flex items-center gap-1 rounded-lg bg-black/70 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur-sm">
-                                  <ZoomIn className="h-3.5 w-3.5" /> Preview
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition-opacity group-hover:opacity-100">
+                                <span className="inline-flex items-center gap-1.5 rounded-lg bg-black/75 px-3 py-1.5 text-xs font-bold text-white backdrop-blur-sm">
+                                  <ZoomIn className="h-3.5 w-3.5" /> Enlarge Image
                                 </span>
                               </div>
                             </div>
@@ -346,15 +403,15 @@ export default function Patients() {
                         ) : null}
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {/* Modal Footer */}
               <div className="flex justify-end border-t border-navy-100 px-6 py-3.5 dark:border-white/10">
                 <button
                   onClick={() => setSelectedPatient(null)}
-                  className="rounded-xl bg-navy-100 px-4 py-2 text-xs font-bold text-navy-900 hover:bg-navy-200 dark:bg-white/10 dark:text-white dark:hover:bg-white/20 cursor-pointer"
+                  className="rounded-xl bg-navy-100 px-5 py-2 text-xs font-bold text-navy-900 hover:bg-navy-200 dark:bg-white/10 dark:text-white dark:hover:bg-white/20 cursor-pointer"
                 >
                   Close
                 </button>
@@ -363,7 +420,7 @@ export default function Patients() {
           </div>
         )}
 
-        {/* MODAL 2: FULL-SIZE IMAGE LIGHTBOX PREVIEW */}
+        {/* MODAL 2: FULL-SCREEN LIGHTBOX PREVIEW */}
         {previewImage && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div
