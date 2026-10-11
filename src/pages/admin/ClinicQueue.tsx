@@ -50,10 +50,12 @@ export default function ClinicQueue() {
   const [proofPreview, setProofPreview] = useState<string>("");
   const [isSubmittingCompletion, setIsSubmittingCompletion] = useState<boolean>(false);
 
-  // Camera vs File mode
+  // Camera & Attach File States
   const [captureMode, setCaptureMode] = useState<"upload" | "webcam">("upload");
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -104,7 +106,7 @@ export default function ClinicQueue() {
 
   const nowServing = todayQueue[0] || null;
 
-  // TV Broadcast Trigger
+  // TV Broadcast Trigger (Walang audio dito sa admin browser)
   const triggerTvBroadcast = async (item: Appointment & { queueNumber: number }) => {
     try {
       setIsCalling(item.id);
@@ -135,57 +137,97 @@ export default function ClinicQueue() {
     }
   };
 
-  // Webcam Management
+  // Enumerate Connected Cameras
+  const loadVideoDevices = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter((d) => d.kind === "videoinput");
+      setVideoDevices(videoInputs);
+      if (videoInputs.length > 0 && !selectedDeviceId) {
+        // Unahin ang external USB camera kung may nakasaksak
+        const usbCamera = videoInputs.find(
+          (d) => !d.label.toLowerCase().includes("integrated") && !d.label.toLowerCase().includes("built-in")
+        );
+        setSelectedDeviceId(usbCamera ? usbCamera.deviceId : videoInputs[0].deviceId);
+      }
+    } catch (err) {
+      console.error("Error enumerating video devices:", err);
+    }
+  };
+
   const stopWebcam = useCallback(() => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setIsCameraActive(false);
   }, []);
 
-  const startWebcam = async () => {
+  const startWebcam = async (deviceIdToUse?: string) => {
     setCameraError(null);
+    stopWebcam();
+
+    const targetDeviceId = deviceIdToUse || selectedDeviceId;
+
     try {
-      stopWebcam();
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+      const constraints: MediaStreamConstraints = {
+        video: targetDeviceId
+          ? { deviceId: { exact: targetDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+          : { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
         audio: false,
-      });
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
+
+      await loadVideoDevices();
       setIsCameraActive(true);
     } catch (err) {
       console.error("Webcam access error:", err);
-      setCameraError("Cannot access camera. Please check permissions or attach a webcam.");
+      setCameraError("Cannot access camera. Check browser permissions or privacy shutters.");
       setIsCameraActive(false);
     }
   };
+
+  // Tiyakin na maikakabit ang media stream sa <video> element kapag nai-render na ito sa screen
+  useEffect(() => {
+    if (isCameraActive && videoRef.current && streamRef.current) {
+      const videoEl = videoRef.current;
+      videoEl.srcObject = streamRef.current;
+      videoEl.onloadedmetadata = () => {
+        videoEl.play().catch((playErr) => console.warn("Video play error:", playErr));
+      };
+    }
+  }, [isCameraActive]);
 
   const handleCaptureFromWebcam = () => {
     if (!videoRef.current) return;
 
     const video = videoRef.current;
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    canvas.toBlob((blob) => {
-      if (blob) {
-        const file = new File([blob], `webcam-${Date.now()}.jpg`, { type: "image/jpeg" });
-        setProofFile(file);
-        setProofPreview(canvas.toDataURL("image/jpeg"));
-        stopWebcam();
-      }
-    }, "image/jpeg", 0.9);
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          const file = new File([blob], `consultation-${Date.now()}.jpg`, { type: "image/jpeg" });
+          setProofFile(file);
+          setProofPreview(canvas.toDataURL("image/jpeg"));
+          stopWebcam();
+        }
+      },
+      "image/jpeg",
+      0.9
+    );
   };
 
   const handleOpenCompleteModal = (item: Appointment) => {
@@ -467,7 +509,7 @@ export default function ClinicQueue() {
           </div>
         )}
 
-        {/* CONSULTATION COMPLETION MODAL WITH WEBCAM & ATTACH FILE OPTIONS */}
+        {/* CONSULTATION COMPLETION MODAL */}
         {selectedAppointment && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div
@@ -497,7 +539,7 @@ export default function ClinicQueue() {
                   />
                 </div>
 
-                {/* Photo Documentation Section */}
+                {/* Proof Section */}
                 <div>
                   <div className="flex items-center justify-between pb-1.5">
                     <label className="block text-xs font-semibold uppercase tracking-wider text-ink-600 dark:text-white/70">
@@ -557,13 +599,37 @@ export default function ClinicQueue() {
                   {/* Mode 2: Live Webcam / USB Cam */}
                   {captureMode === "webcam" && (
                     <div className="mt-2 space-y-2">
+                      {/* Video Device Selection Dropdown */}
+                      {videoDevices.length > 1 && (
+                        <div className="flex items-center gap-2">
+                          <label className="text-xs font-semibold text-ink-600 dark:text-white/70">
+                            Camera:
+                          </label>
+                          <select
+                            value={selectedDeviceId}
+                            onChange={(e) => {
+                              const newId = e.target.value;
+                              setSelectedDeviceId(newId);
+                              startWebcam(newId);
+                            }}
+                            className="flex-1 rounded-lg border border-navy-200 bg-white px-2.5 py-1.5 text-xs text-navy-900 outline-none dark:border-white/15 dark:bg-navy-800 dark:text-white"
+                          >
+                            {videoDevices.map((dev, i) => (
+                              <option key={dev.deviceId || i} value={dev.deviceId}>
+                                {dev.label || `Camera ${i + 1}`}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+
                       {cameraError ? (
                         <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-600 dark:border-red-900/50 dark:bg-red-950/20">
                           {cameraError}
                           <button
                             type="button"
-                            onClick={startWebcam}
-                            className="ml-2 font-bold underline"
+                            onClick={() => startWebcam()}
+                            className="ml-2 font-bold underline cursor-pointer"
                           >
                             Retry
                           </button>
@@ -574,13 +640,14 @@ export default function ClinicQueue() {
                             ref={videoRef}
                             autoPlay
                             playsInline
-                            className="h-48 w-full object-cover"
+                            muted
+                            className="h-52 w-full object-cover"
                           />
                           <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-2">
                             <button
                               type="button"
                               onClick={handleCaptureFromWebcam}
-                              className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-lg hover:bg-blue-500 cursor-pointer"
+                              className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-lg hover:bg-blue-500 cursor-pointer active:scale-95"
                             >
                               <Camera className="h-4 w-4" />
                               Snap Photo
@@ -598,8 +665,8 @@ export default function ClinicQueue() {
                       ) : (
                         <button
                           type="button"
-                          onClick={startWebcam}
-                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-blue-400 p-4 text-sm font-semibold text-blue-600 hover:bg-blue-50/50 dark:border-blue-500/40 dark:text-blue-400 dark:hover:bg-blue-950/20"
+                          onClick={() => startWebcam()}
+                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-blue-400 p-4 text-sm font-semibold text-blue-600 hover:bg-blue-50/50 dark:border-blue-500/40 dark:text-blue-400 dark:hover:bg-blue-950/20 cursor-pointer"
                         >
                           <Video className="h-4 w-4" />
                           Start Webcam / USB Camera Preview
