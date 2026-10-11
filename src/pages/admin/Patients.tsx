@@ -107,7 +107,7 @@ export default function Patients() {
 
   // Helper para sa icon at badge ng isinagawang procedure
   const getProcedureMeta = (reason: string) => {
-    const lower = reason.toLowerCase();
+    const lower = (reason || "").toLowerCase();
     if (lower.includes("vaccin")) {
       return {
         icon: Syringe,
@@ -268,6 +268,9 @@ export default function Patients() {
                 {selectedPatient.history.map((record) => {
                   const meta = getProcedureMeta(record.reason);
                   const ProcedureIcon = meta.icon;
+                  // Tinitiyak na mababasa ang completion photo URL
+                  const completionUrl = record.completionPhotoUrl || (record as any).completion_photo_url;
+                  const idUrl = record.idPhotoUrl || (record as any).id_photo_url;
 
                   return (
                     <div
@@ -342,25 +345,25 @@ export default function Patients() {
                         </div>
                       </div>
 
-                      {/* INLINE IMAGE PREVIEWS */}
+                      {/* INLINE IMAGE PREVIEWS (Thumbnails with Lightbox Zoom) */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                        {/* Consultation Proof Photo */}
-                        {record.completionPhotoUrl ? (
+                        {/* Consultation & Procedure Proof Photo */}
+                        {completionUrl ? (
                           <div className="flex flex-col gap-1.5">
                             <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
-                              <ImageIcon className="h-3 w-3" /> Procedure & Consultation Proof Photo
+                              <ImageIcon className="h-3.5 w-3.5" /> Procedure & Consultation Proof Photo
                             </span>
                             <div
                               onClick={() =>
                                 setPreviewImage({
-                                  url: record.completionPhotoUrl!,
+                                  url: completionUrl,
                                   title: `Procedure Proof - ${record.patientName} (${record.date} - ${record.reason})`,
                                 })
                               }
                               className="group relative h-36 w-full cursor-pointer overflow-hidden rounded-xl border border-emerald-300/60 bg-black/5 dark:border-emerald-800/40"
                             >
                               <img
-                                src={record.completionPhotoUrl}
+                                src={completionUrl}
                                 alt="Procedure Proof"
                                 className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                               />
@@ -371,25 +374,29 @@ export default function Patients() {
                               </div>
                             </div>
                           </div>
-                        ) : null}
+                        ) : (
+                          <div className="flex flex-col justify-center rounded-xl border border-dashed border-navy-200 p-4 text-center text-xs text-ink-400 dark:border-white/10 dark:text-white/40">
+                            <span>Walang procedure proof photo</span>
+                          </div>
+                        )}
 
                         {/* PhilSys / Valid ID Photo */}
-                        {record.idPhotoUrl ? (
+                        {idUrl ? (
                           <div className="flex flex-col gap-1.5">
                             <span className="text-[11px] font-bold text-blue-700 dark:text-blue-400 flex items-center gap-1">
-                              <FileText className="h-3 w-3" /> PhilSys / Identity Proof
+                              <FileText className="h-3.5 w-3.5" /> PhilSys / Identity Proof
                             </span>
                             <div
                               onClick={() =>
                                 setPreviewImage({
-                                  url: record.idPhotoUrl!,
+                                  url: idUrl,
                                   title: `PhilSys ID - ${record.patientName}`,
                                 })
                               }
                               className="group relative h-36 w-full cursor-pointer overflow-hidden rounded-xl border border-blue-300/60 bg-black/5 dark:border-blue-800/40"
                             >
                               <img
-                                src={record.idPhotoUrl}
+                                src={idUrl}
                                 alt="PhilSys ID"
                                 className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                               />

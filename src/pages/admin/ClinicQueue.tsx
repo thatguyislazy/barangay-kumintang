@@ -38,6 +38,19 @@ function parseTimeToMinutes(timeStr?: string): number {
   return hours * 60 + minutes;
 }
 
+// Helper: Direktang i-convert ang Base64 papuntang File para hindi mawala sa state
+function dataURLtoFile(dataurl: string, filename: string): File {
+  const arr = dataurl.split(",");
+  const mime = arr[0].match(/:(.*?);/)![1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) {
+    u8arr[n] = bstr.charCodeAt(n);
+  }
+  return new File([u8arr], filename, { type: mime });
+}
+
 export default function ClinicQueue() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -93,7 +106,6 @@ export default function ClinicQueue() {
     };
   }, [loadAppointments]);
 
-  // Live Queue (Confirmed para sa araw na ito, naka-sort AM bago PM)
   const todayQueue = useMemo(() => {
     return appointments
       .filter((a) => a.date === todayStr && a.status === "Confirmed")
@@ -106,7 +118,7 @@ export default function ClinicQueue() {
 
   const nowServing = todayQueue[0] || null;
 
-  // TV Broadcast Trigger (sa TV monitor display lang mag-aanunsyo)
+  // TV Broadcast Trigger (Hindi tutunog sa admin)
   const triggerTvBroadcast = async (item: Appointment & { queueNumber: number }) => {
     try {
       setIsCalling(item.id);
@@ -185,7 +197,7 @@ export default function ClinicQueue() {
       setIsCameraActive(true);
     } catch (err) {
       console.error("Webcam access error:", err);
-      setCameraError("Hindi ma-access ang camera. Pakisuri ang camera permission o privacy cover.");
+      setCameraError("Hindi ma-access ang camera. Pakisuri ang permissions.");
       setIsCameraActive(false);
     }
   };
@@ -200,6 +212,7 @@ export default function ClinicQueue() {
     }
   }, [isCameraActive]);
 
+  // Synchronous capture para 100% laging may File object na handa
   const handleCaptureFromWebcam = () => {
     if (!videoRef.current) return;
 
@@ -213,18 +226,16 @@ export default function ClinicQueue() {
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    canvas.toBlob(
-      (blob) => {
-        if (blob) {
-          const file = new File([blob], `proof_${Date.now()}.jpg`, { type: "image/jpeg" });
-          setProofFile(file);
-          setProofPreview(canvas.toDataURL("image/jpeg"));
-          stopWebcam();
-        }
-      },
-      "image/jpeg",
-      0.9
-    );
+    try {
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+      const generatedFile = dataURLtoFile(dataUrl, `procedure_${Date.now()}.jpg`);
+      
+      setProofPreview(dataUrl);
+      setProofFile(generatedFile);
+      stopWebcam();
+    } catch (err) {
+      console.error("Error creating photo file from canvas:", err);
+    }
   };
 
   const handleOpenCompleteModal = (item: Appointment) => {
@@ -262,9 +273,11 @@ export default function ClinicQueue() {
       setIsSubmittingCompletion(true);
       let proofUrl: string | undefined = undefined;
 
-      // Kung may file na nakuha sa camera o in-attach, i-upload sa storage bago i-complete
+      // Siguraduhing may file bago tawagin ang storage upload
       if (proofFile) {
+        console.log("Uploading procedure proof photo:", proofFile.name, proofFile.size);
         proofUrl = await appointmentService.uploadCompletionPhoto(proofFile);
+        console.log("Uploaded successfully to URL:", proofUrl);
       }
 
       await appointmentService.completeAppointment(
@@ -278,7 +291,7 @@ export default function ClinicQueue() {
       await loadAppointments();
     } catch (err: any) {
       console.error("Error completing consultation:", err);
-      alert(`Nagkaroon ng problema sa pag-save: ${err?.message || "Pakisubukang muli."}`);
+      alert(`Nagkaroon ng problema: ${err?.message || "Pakisubukang muli."}`);
     } finally {
       setIsSubmittingCompletion(false);
     }
@@ -674,12 +687,15 @@ export default function ClinicQueue() {
 
                   {/* Photo Preview Result */}
                   {proofPreview && (
-                    <div className="mt-3 relative rounded-xl overflow-hidden border border-navy-200 dark:border-white/10">
+                    <div className="mt-3 relative rounded-xl overflow-hidden border border-emerald-300 dark:border-emerald-800/50">
                       <img
                         src={proofPreview}
                         alt="Captured proof"
                         className="h-36 w-full object-cover"
                       />
+                      <div className="absolute bottom-2 left-2 bg-emerald-600/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-sm">
+                        ✓ Photo Ready to Submit
+                      </div>
                       <button
                         type="button"
                         onClick={() => {
@@ -711,7 +727,7 @@ export default function ClinicQueue() {
                     className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-soft hover:bg-emerald-500 disabled:opacity-50 cursor-pointer"
                   >
                     {isSubmittingCompletion && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {isSubmittingCompletion ? "Saving..." : "Mark as Completed"}
+                    {isSubmittingCompletion ? "Saving & Uploading Photo..." : "Mark as Completed"}
                   </button>
                 </div>
               </form>
