@@ -6,11 +6,11 @@ import {
   Calendar,
   FileText,
   Clock,
-  ExternalLink,
   MessageSquare,
   Image as ImageIcon,
   X,
   Loader2,
+  ZoomIn,
 } from "lucide-react";
 import { AdminLayout } from "../../components/admin/AdminLayout";
 import { appointmentService } from "../../services/appointmentService";
@@ -30,6 +30,9 @@ export default function Patients() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [selectedPatient, setSelectedPatient] = useState<PatientRecord | null>(null);
+
+  // Lightbox Preview Modal State
+  const [previewImage, setPreviewImage] = useState<{ url: string; title: string } | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -200,7 +203,7 @@ export default function Patients() {
           </div>
         )}
 
-        {/* MODAL: PATIENT CONSULTATION HISTORY & PAST REMARKS */}
+        {/* MODAL 1: PATIENT CONSULTATION HISTORY & PAST REMARKS */}
         {selectedPatient && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div
@@ -265,10 +268,10 @@ export default function Patients() {
                     </div>
 
                     {/* Clinical Remarks Section */}
-                    <div className="mt-3 space-y-2">
+                    <div className="mt-3 space-y-3">
                       <div className="flex items-start gap-2">
                         <MessageSquare className="h-4 w-4 text-blue-600 shrink-0 mt-0.5" />
-                        <div>
+                        <div className="flex-1">
                           <span className="text-xs font-bold uppercase tracking-wider text-ink-500 dark:text-white/60">
                             Clinical Remarks / Prescriptions Given:
                           </span>
@@ -282,33 +285,65 @@ export default function Patients() {
                         </div>
                       </div>
 
-                      {/* Photo Attachments (ID and Consultation Proof) */}
-                      <div className="flex flex-wrap items-center gap-3 pt-2">
-                        {record.completionPhotoUrl && (
-                          <a
-                            href={record.completionPhotoUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800/50 dark:bg-emerald-950/40 dark:text-emerald-300"
-                          >
-                            <ImageIcon className="h-3.5 w-3.5" />
-                            View Consultation Proof Photo
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        )}
+                      {/* INLINE IMAGE PREVIEWS (Thumbnails na puwedeng i-click para lumaki) */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                        {/* Consultation Proof Photo */}
+                        {record.completionPhotoUrl ? (
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+                              <ImageIcon className="h-3 w-3" /> Consultation Proof
+                            </span>
+                            <div
+                              onClick={() =>
+                                setPreviewImage({
+                                  url: record.completionPhotoUrl!,
+                                  title: `Consultation Proof - ${record.patientName} (${record.date})`,
+                                })
+                              }
+                              className="group relative h-32 w-full cursor-pointer overflow-hidden rounded-xl border border-emerald-300/60 bg-black/5 dark:border-emerald-800/40"
+                            >
+                              <img
+                                src={record.completionPhotoUrl}
+                                alt="Consultation Proof"
+                                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100">
+                                <span className="inline-flex items-center gap-1 rounded-lg bg-black/70 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur-sm">
+                                  <ZoomIn className="h-3.5 w-3.5" /> Preview
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
 
-                        {record.idPhotoUrl && (
-                          <a
-                            href={record.idPhotoUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1.5 rounded-xl border border-navy-200 bg-white px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 dark:border-white/10 dark:bg-navy-800 dark:text-blue-400"
-                          >
-                            <FileText className="h-3.5 w-3.5" />
-                            View PhilSys / ID Photo
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        )}
+                        {/* PhilSys / Valid ID Photo */}
+                        {record.idPhotoUrl ? (
+                          <div className="flex flex-col gap-1.5">
+                            <span className="text-[11px] font-bold text-blue-700 dark:text-blue-400 flex items-center gap-1">
+                              <FileText className="h-3 w-3" /> PhilSys / Valid ID
+                            </span>
+                            <div
+                              onClick={() =>
+                                setPreviewImage({
+                                  url: record.idPhotoUrl!,
+                                  title: `PhilSys / Valid ID - ${record.patientName}`,
+                                })
+                              }
+                              className="group relative h-32 w-full cursor-pointer overflow-hidden rounded-xl border border-blue-300/60 bg-black/5 dark:border-blue-800/40"
+                            >
+                              <img
+                                src={record.idPhotoUrl}
+                                alt="PhilSys ID"
+                                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                              />
+                              <div className="absolute inset-0 flex items-center justify-center bg-black/30 opacity-0 transition-opacity group-hover:opacity-100">
+                                <span className="inline-flex items-center gap-1 rounded-lg bg-black/70 px-2.5 py-1 text-xs font-semibold text-white backdrop-blur-sm">
+                                  <ZoomIn className="h-3.5 w-3.5" /> Preview
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -323,6 +358,37 @@ export default function Patients() {
                 >
                   Close
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL 2: FULL-SIZE IMAGE LIGHTBOX PREVIEW */}
+        {previewImage && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
+              onClick={() => setPreviewImage(null)}
+            />
+            <div className="relative flex max-h-[92vh] max-w-4xl flex-col items-center overflow-hidden rounded-3xl bg-slate-950 p-4 shadow-2xl border border-white/10">
+              <div className="flex w-full items-center justify-between pb-3 px-2">
+                <h3 className="text-sm font-bold text-white truncate max-w-lg">
+                  {previewImage.title}
+                </h3>
+                <button
+                  onClick={() => setPreviewImage(null)}
+                  className="rounded-xl bg-white/10 p-2 text-white hover:bg-white/20 cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="flex flex-1 items-center justify-center overflow-hidden rounded-2xl bg-black max-h-[75vh] w-full">
+                <img
+                  src={previewImage.url}
+                  alt={previewImage.title}
+                  className="max-h-[75vh] w-auto max-w-full object-contain"
+                />
               </div>
             </div>
           </div>
