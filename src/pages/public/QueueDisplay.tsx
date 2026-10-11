@@ -8,6 +8,8 @@ import {
   Stethoscope,
   Activity,
   Sparkles,
+  Radio,
+  Clock,
 } from "lucide-react";
 import { supabase } from "../../supabase/supabase";
 import { voiceService } from "../../services/voiceService";
@@ -36,13 +38,17 @@ export default function QueueDisplay() {
   const [audioEnabled, setAudioEnabled] = useState<boolean>(false);
   const [currentTime, setCurrentTime] = useState<string>("");
   const [currentDate, setCurrentDate] = useState<string>("");
+  const [flashingId, setFlashingId] = useState<string | null>(null);
+
   const [activeCall, setActiveCall] = useState<{
+    id: string;
     queueNumber: number;
     patientName: string;
     reason: string;
+    time?: string;
   } | null>(null);
 
-  // Digital Clock & Date
+  // Live Digital Clock
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
@@ -68,7 +74,6 @@ export default function QueueDisplay() {
     return () => clearInterval(timer);
   }, []);
 
-  // Fetch today's confirmed appointments
   const fetchAppointments = useCallback(async () => {
     const today = new Date().toISOString().split("T")[0];
     const { data, error } = await supabase
@@ -78,7 +83,7 @@ export default function QueueDisplay() {
       .eq("status", "Confirmed");
 
     if (error) {
-      console.error("QueueDisplay: Error loading queue:", error.message);
+      console.error("QueueDisplay: Error fetching list:", error.message);
       return;
     }
 
@@ -102,12 +107,12 @@ export default function QueueDisplay() {
     }
   }, []);
 
-  // Realtime Data Sync + Broadcast Audio Listener
+  // Realtime Data + Broadcast Listener para sa TV Audio
   useEffect(() => {
     fetchAppointments();
 
     const dbChannel = supabase
-      .channel("public:appointments_queue_sync")
+      .channel("public:tv_queue_sync")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "appointments" },
@@ -117,21 +122,28 @@ export default function QueueDisplay() {
       )
       .subscribe();
 
-    // Broadcast Listener: Dito lang mag-sasalita ang audio kapag pinindot sa admin
+    // Dito lamang tatakbo ang boses kapag nag-broadcast ang admin
     const broadcastChannel = supabase
-      .channel("clinic_audio_broadcast")
-      .on("broadcast", { event: "CALL_PATIENT" }, (payload) => {
+      .channel("clinic_tv_monitor_stream")
+      .on("broadcast", { event: "TRIGGER_PATIENT_CALL" }, (payload) => {
         const item = payload.payload;
         if (item) {
           setActiveCall({
+            id: item.id,
             queueNumber: item.queueNumber,
             patientName: item.patientName,
             reason: item.reason,
+            time: item.time,
           });
 
+          // Visual strobe animation
+          setFlashingId(item.id);
+          setTimeout(() => setFlashingId(null), 8000);
+
+          // Audio speech announcement
           if (audioEnabled) {
-            const speech = `Calling Queue Number ${item.queueNumber}, ${item.patientName}, for ${item.reason}. Please proceed to the clinic counter.`;
-            voiceService.speak(speech);
+            const speechText = `Calling Queue Number ${item.queueNumber}, ${item.patientName}, for ${item.reason}. Please proceed to the clinic triage counter.`;
+            voiceService.speak(speechText);
           }
         }
       })
@@ -181,38 +193,39 @@ export default function QueueDisplay() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-slate-950 font-sans text-slate-100 antialiased selection:bg-blue-600 selection:text-white">
-      {/* HEADER BAR */}
-      <header className="flex h-20 items-center justify-between border-b border-slate-800/80 bg-slate-900/90 px-8 backdrop-blur-md">
+      {/* TOP HEADER */}
+      <header className="flex h-20 items-center justify-between border-b border-slate-800/80 bg-slate-900/95 px-8 shadow-2xl backdrop-blur-md">
         <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-blue-700 to-indigo-500 shadow-lg shadow-blue-500/20">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-tr from-blue-700 via-blue-600 to-indigo-500 shadow-lg shadow-blue-500/25">
             <Activity className="h-6 w-6 text-white" />
           </div>
           <div>
             <h1 className="font-display text-2xl font-black uppercase tracking-wider text-white">
               Barangay Kumintang Ilaya
             </h1>
-            <p className="text-xs font-semibold uppercase tracking-widest text-blue-400">
-              Community Health Center • Live Triage Display
+            <p className="text-xs font-bold uppercase tracking-widest text-blue-400">
+              Community Health Center • Live Triage Display Monitor
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-5">
+          {/* Audio Activator Button */}
           <button
             onClick={() => setAudioEnabled((prev) => !prev)}
-            className={`flex items-center gap-2.5 rounded-xl px-5 py-2.5 text-xs font-extrabold uppercase tracking-wider transition-all shadow-lg ${
+            className={`flex items-center gap-2.5 rounded-2xl px-5 py-2.5 text-xs font-black uppercase tracking-wider transition-all shadow-lg active:scale-95 ${
               audioEnabled
-                ? "bg-emerald-600/90 text-white shadow-emerald-900/30 hover:bg-emerald-500"
-                : "bg-amber-500 text-slate-950 shadow-amber-500/20 animate-pulse hover:bg-amber-400"
+                ? "bg-emerald-600 text-white shadow-emerald-950/40 hover:bg-emerald-500"
+                : "bg-amber-500 text-slate-950 shadow-amber-500/30 animate-pulse hover:bg-amber-400"
             }`}
           >
             {audioEnabled ? (
               <>
-                <Volume2 className="h-4 w-4" /> Sound Active
+                <Volume2 className="h-4 w-4" /> TV Audio Active
               </>
             ) : (
               <>
-                <VolumeX className="h-4 w-4" /> Click To Enable TV Voice
+                <VolumeX className="h-4 w-4" /> Enable TV Audio
               </>
             )}
           </button>
@@ -221,69 +234,81 @@ export default function QueueDisplay() {
             <span className="font-mono text-2xl font-black tracking-tight text-white">
               {currentTime || "--:--:--"}
             </span>
-            <span className="text-[11px] font-medium text-slate-400">
+            <span className="text-[11px] font-semibold text-slate-400">
               {currentDate}
             </span>
           </div>
         </div>
       </header>
 
-      {/* MAIN DUAL VIEW */}
+      {/* DUAL SECTION SCREEN */}
       <main className="grid flex-1 grid-cols-12 gap-6 p-6 overflow-hidden">
-        {/* LEFT SECTION (5 Cols): NOW SERVING HIGHLIGHT */}
-        <section className="col-span-5 flex flex-col justify-between rounded-3xl border border-blue-500/30 bg-gradient-to-b from-slate-900/90 via-slate-900/60 to-blue-950/40 p-8 shadow-2xl backdrop-blur-xl relative overflow-hidden">
-          <div className="absolute -right-16 -top-16 h-64 w-64 rounded-full bg-blue-600/10 blur-3xl pointer-events-none" />
+        {/* LEFT COLUMN: NOW SERVING JUMBOTRON CARD */}
+        <section
+          className={`col-span-5 flex flex-col justify-between rounded-3xl border p-8 shadow-2xl backdrop-blur-xl relative overflow-hidden transition-all duration-500 ${
+            flashingId
+              ? "border-blue-400 bg-gradient-to-b from-blue-900/90 via-slate-900 to-slate-950 ring-4 ring-blue-500/40"
+              : "border-blue-500/30 bg-gradient-to-b from-slate-900/90 via-slate-900/70 to-blue-950/30"
+          }`}
+        >
+          <div className="absolute -right-20 -top-20 h-72 w-72 rounded-full bg-blue-600/15 blur-3xl pointer-events-none" />
 
-          {/* Top Tag */}
+          {/* Card Header Tag */}
           <div className="flex items-center justify-between">
             <span className="inline-flex items-center gap-2 rounded-full border border-blue-400/40 bg-blue-500/10 px-4 py-1.5 text-xs font-black uppercase tracking-widest text-blue-300">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-ping" />
+              <Radio className="h-3 w-3 text-emerald-400 animate-pulse" />
               Now Serving At Counter
             </span>
             <span className="text-xs font-bold text-slate-400">
-              Total Today: {queue.length}
+              Total Waiting: {queue.length}
             </span>
           </div>
 
-          {/* Center Callout */}
+          {/* Ticket Number & Name */}
           <div className="my-auto text-center py-6">
-            <div className="inline-block rounded-3xl bg-blue-600/20 border border-blue-500/40 px-10 py-4 shadow-inner">
-              <span className="font-mono text-8xl font-black tracking-tighter text-blue-400 drop-shadow-[0_0_35px_rgba(59,130,246,0.5)]">
+            <div className="inline-block rounded-3xl bg-blue-600/20 border border-blue-500/40 px-12 py-5 shadow-2xl">
+              <span className="font-mono text-8xl font-black tracking-tighter text-blue-400 drop-shadow-[0_0_40px_rgba(59,130,246,0.6)]">
                 {nowServing ? `#${nowServing.queueNumber}` : "--"}
               </span>
             </div>
 
             <h2 className="mt-8 text-4xl font-extrabold text-white tracking-tight line-clamp-2">
-              {nowServing ? nowServing.patientName : "Waiting For Next Call"}
+              {nowServing ? nowServing.patientName : "Waiting for Next Patient..."}
             </h2>
 
             {nowServing && (
-              <div className="mt-4 inline-flex items-center gap-2 rounded-xl bg-slate-800/80 border border-slate-700/60 px-5 py-2">
-                <Sparkles className="h-4 w-4 text-amber-400" />
-                <span className="text-sm font-bold text-slate-200">
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
+                <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800/90 border border-slate-700/80 px-4 py-2 text-sm font-bold text-slate-200">
+                  <Sparkles className="h-4 w-4 text-amber-400" />
                   {nowServing.reason}
                 </span>
+                {nowServing.time && (
+                  <span className="inline-flex items-center gap-1.5 rounded-xl bg-slate-800/90 border border-slate-700/80 px-4 py-2 text-sm font-bold text-blue-300">
+                    <Clock className="h-4 w-4 text-blue-400" />
+                    Time: {nowServing.time}
+                  </span>
+                )}
               </div>
             )}
           </div>
 
-          {/* Bottom Announcement Note */}
-          <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-center">
-            <p className="text-xs font-medium text-slate-400">
-              Please listen for your name and queue number. Present your PhilSys or valid ID when approaching the counter.
+          {/* Guidance Advisory */}
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4 text-center">
+            <p className="text-xs font-semibold text-slate-400">
+              Mangyaring ihanda ang PhilSys o valid ID bago lumapit sa consultation counter.
             </p>
           </div>
         </section>
 
-        {/* RIGHT SECTION (7 Cols): 3 SERVICE DEPARTMENT COLUMNS */}
+        {/* RIGHT COLUMN: 3 SPECIALIZED DEPARTMENT COLUMNS */}
         <section className="col-span-7 grid grid-cols-3 gap-5">
           {/* 1. VACCINATION */}
-          <div className="flex flex-col rounded-3xl border border-emerald-900/40 bg-slate-900/60 backdrop-blur-md overflow-hidden shadow-xl">
-            <div className="border-b border-emerald-900/40 bg-emerald-950/30 px-5 py-4 flex items-center justify-between">
+          <div className="flex flex-col rounded-3xl border border-emerald-900/40 bg-slate-900/70 backdrop-blur-md overflow-hidden shadow-xl">
+            <div className="border-b border-emerald-900/40 bg-emerald-950/40 px-5 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Syringe className="h-4 w-4 text-emerald-400" />
                 <h3 className="text-sm font-black uppercase tracking-wider text-emerald-200">
-                  Vaccine
+                  Vaccination
                 </h3>
               </div>
               <span className="rounded-full bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 text-xs font-black text-emerald-300">
@@ -297,8 +322,8 @@ export default function QueueDisplay() {
                   key={item.id}
                   className={`flex flex-col rounded-2xl p-3.5 transition-all ${
                     nowServing?.queueNumber === item.queueNumber
-                      ? "border border-emerald-500 bg-emerald-950/40 shadow-lg"
-                      : "border border-slate-800/80 bg-slate-950/40"
+                      ? "border-2 border-emerald-400 bg-emerald-950/60 shadow-lg scale-[1.02]"
+                      : "border border-slate-800/80 bg-slate-950/50"
                   }`}
                 >
                   <div className="flex items-center justify-between">
@@ -316,17 +341,17 @@ export default function QueueDisplay() {
               ))}
 
               {vaccineQueue.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center text-slate-600 text-xs py-12">
+                <div className="h-full flex flex-col items-center justify-center text-slate-600 text-xs py-16">
                   <Users className="h-6 w-6 stroke-1 mb-1" />
-                  <span>No patients in line</span>
+                  <span>No patients queued</span>
                 </div>
               )}
             </div>
           </div>
 
           {/* 2. MEDICINE DISPENSARY */}
-          <div className="flex flex-col rounded-3xl border border-amber-900/40 bg-slate-900/60 backdrop-blur-md overflow-hidden shadow-xl">
-            <div className="border-b border-amber-900/40 bg-amber-950/30 px-5 py-4 flex items-center justify-between">
+          <div className="flex flex-col rounded-3xl border border-amber-900/40 bg-slate-900/70 backdrop-blur-md overflow-hidden shadow-xl">
+            <div className="border-b border-amber-900/40 bg-amber-950/40 px-5 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Pill className="h-4 w-4 text-amber-400" />
                 <h3 className="text-sm font-black uppercase tracking-wider text-amber-200">
@@ -344,8 +369,8 @@ export default function QueueDisplay() {
                   key={item.id}
                   className={`flex flex-col rounded-2xl p-3.5 transition-all ${
                     nowServing?.queueNumber === item.queueNumber
-                      ? "border border-amber-500 bg-amber-950/40 shadow-lg"
-                      : "border border-slate-800/80 bg-slate-950/40"
+                      ? "border-2 border-amber-400 bg-amber-950/60 shadow-lg scale-[1.02]"
+                      : "border border-slate-800/80 bg-slate-950/50"
                   }`}
                 >
                   <div className="flex items-center justify-between">
@@ -363,17 +388,17 @@ export default function QueueDisplay() {
               ))}
 
               {medicineQueue.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center text-slate-600 text-xs py-12">
+                <div className="h-full flex flex-col items-center justify-center text-slate-600 text-xs py-16">
                   <Users className="h-6 w-6 stroke-1 mb-1" />
-                  <span>No patients in line</span>
+                  <span>No patients queued</span>
                 </div>
               )}
             </div>
           </div>
 
           {/* 3. FREE CHECK-UP */}
-          <div className="flex flex-col rounded-3xl border border-cyan-900/40 bg-slate-900/60 backdrop-blur-md overflow-hidden shadow-xl">
-            <div className="border-b border-cyan-900/40 bg-cyan-950/30 px-5 py-4 flex items-center justify-between">
+          <div className="flex flex-col rounded-3xl border border-cyan-900/40 bg-slate-900/70 backdrop-blur-md overflow-hidden shadow-xl">
+            <div className="border-b border-cyan-900/40 bg-cyan-950/40 px-5 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Stethoscope className="h-4 w-4 text-cyan-400" />
                 <h3 className="text-sm font-black uppercase tracking-wider text-cyan-200">
@@ -391,8 +416,8 @@ export default function QueueDisplay() {
                   key={item.id}
                   className={`flex flex-col rounded-2xl p-3.5 transition-all ${
                     nowServing?.queueNumber === item.queueNumber
-                      ? "border border-cyan-500 bg-cyan-950/40 shadow-lg"
-                      : "border border-slate-800/80 bg-slate-950/40"
+                      ? "border-2 border-cyan-400 bg-cyan-950/60 shadow-lg scale-[1.02]"
+                      : "border border-slate-800/80 bg-slate-950/50"
                   }`}
                 >
                   <div className="flex items-center justify-between">
@@ -410,9 +435,9 @@ export default function QueueDisplay() {
               ))}
 
               {checkupQueue.length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center text-slate-600 text-xs py-12">
+                <div className="h-full flex flex-col items-center justify-center text-slate-600 text-xs py-16">
                   <Users className="h-6 w-6 stroke-1 mb-1" />
-                  <span>No patients in line</span>
+                  <span>No patients queued</span>
                 </div>
               )}
             </div>
@@ -421,9 +446,9 @@ export default function QueueDisplay() {
       </main>
 
       {/* FOOTER */}
-      <footer className="h-10 border-t border-slate-800/60 bg-slate-950 px-8 flex items-center justify-between text-xs text-slate-500">
+      <footer className="h-10 border-t border-slate-800/60 bg-slate-950 px-8 flex items-center justify-between text-xs font-medium text-slate-500">
         <span>Barangay Kumintang Ilaya Health Station Management System</span>
-        <span>Senior citizens, PWDs, and pregnant women receive priority triage care</span>
+        <span>Priority lanes available for senior citizens, persons with disabilities, and pregnant individuals</span>
       </footer>
     </div>
   );
