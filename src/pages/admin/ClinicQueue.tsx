@@ -44,7 +44,7 @@ export default function ClinicQueue() {
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [isCalling, setIsCalling] = useState<string | null>(null);
 
-  // Completion Form State (Tumatanggap ng File o Blob)
+  // Completion Form State (Tumatanggap ng native File o Blob)
   const [remarks, setRemarks] = useState<string>("");
   const [proofFile, setProofFile] = useState<File | Blob | null>(null);
   const [proofPreview, setProofPreview] = useState<string>("");
@@ -93,7 +93,6 @@ export default function ClinicQueue() {
     };
   }, [loadAppointments]);
 
-  // Live Queue para sa araw na ito
   const todayQueue = useMemo(() => {
     return appointments
       .filter((a) => a.date === todayStr && a.status === "Confirmed")
@@ -106,7 +105,6 @@ export default function ClinicQueue() {
 
   const nowServing = todayQueue[0] || null;
 
-  // TV Broadcast Trigger (sa TV monitor display lamang magpapatugtog ng anunsyo)
   const triggerTvBroadcast = async (item: Appointment & { queueNumber: number }) => {
     try {
       setIsCalling(item.id);
@@ -200,7 +198,7 @@ export default function ClinicQueue() {
     }
   }, [isCameraActive]);
 
-  // Kumuha ng preview at binary blob para sa Supabase Storage
+  // Gumagawa ng binary File object mula sa canvas frame
   const handleCaptureFromWebcam = () => {
     if (!videoRef.current) return;
 
@@ -214,21 +212,29 @@ export default function ClinicQueue() {
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Kumuha muna ng base64 data para sa visual preview
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
     setProofPreview(dataUrl);
 
-    // Kumuha ng binary Blob para sa storage upload
-    canvas.toBlob(
-      (blob) => {
-        if (blob) {
-          setProofFile(blob);
-          stopWebcam();
-        }
-      },
-      "image/jpeg",
-      0.9
-    );
+    try {
+      const arr = dataUrl.split(",");
+      const mime = arr[0].match(/:(.*?);/)?.[1] || "image/jpeg";
+      const bstr = atob(arr[1]);
+      let n = bstr.length;
+      const u8arr = new Uint8Array(n);
+      while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
+      }
+      
+      const realFile = new File([u8arr], `webcam_${Date.now()}.jpg`, {
+        type: mime,
+        lastModified: Date.now(),
+      });
+
+      setProofFile(realFile);
+      stopWebcam();
+    } catch (err) {
+      console.error("Failed to convert webcam snap to File:", err);
+    }
   };
 
   const handleOpenCompleteModal = (item: Appointment) => {
@@ -266,7 +272,6 @@ export default function ClinicQueue() {
       setIsSubmittingCompletion(true);
       let proofUrl: string | undefined = undefined;
 
-      // I-upload ang picture kung mayroong na-capture o na-attach
       if (proofFile) {
         proofUrl = await appointmentService.uploadCompletionPhoto(proofFile);
       }
@@ -282,7 +287,7 @@ export default function ClinicQueue() {
       await loadAppointments();
     } catch (err: any) {
       console.error("Error completing consultation:", err);
-      alert(`Nagkaroon ng problema: ${err?.message || "Pakisubukang muli."}`);
+      alert(`Nagkaroon ng problema sa pag-save: ${err?.message || "Pakisubukang muli."}`);
     } finally {
       setIsSubmittingCompletion(false);
     }
@@ -294,7 +299,6 @@ export default function ClinicQueue() {
       description="Manage today's consultation line, send announcements to TV monitor, and verify patient records."
     >
       <div className="space-y-6">
-        {/* Top Control Bar */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="font-display text-2xl font-bold text-navy-900 dark:text-white">
@@ -331,7 +335,6 @@ export default function ClinicQueue() {
           </div>
         </div>
 
-        {/* NOW SERVING SUMMARY BOX */}
         {nowServing && (
           <div className="relative overflow-hidden rounded-3xl border-2 border-blue-500/40 bg-gradient-to-r from-blue-900/10 via-white to-blue-50/50 p-6 shadow-xl dark:border-blue-500/30 dark:from-navy-900 dark:via-navy-900/90 dark:to-blue-950/40">
             <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
@@ -385,7 +388,6 @@ export default function ClinicQueue() {
           </div>
         )}
 
-        {/* FULL PATIENT QUEUE TABLE */}
         {isLoading ? (
           <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-2xl border border-navy-100 bg-white/50 dark:border-white/10 dark:bg-navy-900/40">
             <Loader2 className="h-7 w-7 animate-spin text-navy-800 dark:text-white" />
@@ -511,7 +513,6 @@ export default function ClinicQueue() {
           </div>
         )}
 
-        {/* CONSULTATION COMPLETION MODAL */}
         {selectedAppointment && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div
@@ -541,13 +542,11 @@ export default function ClinicQueue() {
                   />
                 </div>
 
-                {/* Photo Documentation Section */}
                 <div>
                   <div className="flex items-center justify-between pb-1.5">
                     <label className="block text-xs font-semibold uppercase tracking-wider text-ink-600 dark:text-white/70">
                       Proof Photo of Consultation (Optional)
                     </label>
-                    {/* Mode Toggle Buttons */}
                     <div className="inline-flex rounded-lg border border-navy-200 bg-navy-50 p-0.5 dark:border-white/10 dark:bg-white/5">
                       <button
                         type="button"
@@ -582,7 +581,6 @@ export default function ClinicQueue() {
                     </div>
                   </div>
 
-                  {/* Mode 1: File Upload */}
                   {captureMode === "upload" && (
                     <div className="mt-2">
                       <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-navy-300 p-4 text-sm font-medium text-navy-700 hover:bg-navy-50 dark:border-white/20 dark:text-white/80 dark:hover:bg-white/5 transition-colors">
@@ -598,7 +596,6 @@ export default function ClinicQueue() {
                     </div>
                   )}
 
-                  {/* Mode 2: Live Webcam / USB Cam */}
                   {captureMode === "webcam" && (
                     <div className="mt-2 space-y-2">
                       {videoDevices.length > 1 && (
@@ -676,7 +673,6 @@ export default function ClinicQueue() {
                     </div>
                   )}
 
-                  {/* Photo Preview Result */}
                   {proofPreview && (
                     <div className="mt-3 relative rounded-xl overflow-hidden border border-emerald-300 dark:border-emerald-800/50">
                       <img

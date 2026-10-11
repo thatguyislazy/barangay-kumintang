@@ -48,7 +48,6 @@ function mapRowToAppointment(row: any): Appointment {
 }
 
 export const appointmentService = {
-  // Kunin ang listahan ng lahat ng appointments
   async list(): Promise<Appointment[]> {
     const { data, error } = await supabase
       .from("appointments")
@@ -63,7 +62,6 @@ export const appointmentService = {
     return (data || []).map(mapRowToAppointment);
   },
 
-  // Mag-create ng bagong appointment mula sa Public Booking form
   async create(payload: {
     patientName: string;
     contactNumber: string;
@@ -99,7 +97,6 @@ export const appointmentService = {
     return mapRowToAppointment(data);
   },
 
-  // Kunin ang bilang ng intake appointments ngayong araw
   async getDailyIntakeCount(): Promise<number> {
     const today = new Date().toISOString().split("T")[0];
     const { count, error } = await supabase
@@ -115,7 +112,6 @@ export const appointmentService = {
     return count || 0;
   },
 
-  // Kunin ang mga oras na occupied na para sa partikular na petsa
   async getTakenTimeSlots(date: string): Promise<string[]> {
     const { data, error } = await supabase
       .from("appointments")
@@ -131,7 +127,6 @@ export const appointmentService = {
     return (data || []).map((row: any) => row.time).filter(Boolean);
   },
 
-  // Mag-upload ng PhilSys ID photo sa Supabase Storage
   async uploadIdPhoto(file: File): Promise<string> {
     const fileExt = file.name.split(".").pop() || "jpg";
     const fileName = `philsys_${Date.now()}_${Math.random()
@@ -164,20 +159,14 @@ export const appointmentService = {
     return publicUrlData.publicUrl;
   },
 
-  // Suportado pareho ang native File (Upload) at binary Blob (Webcam Snap)
   async uploadCompletionPhoto(fileOrBlob: File | Blob): Promise<string> {
-    const fileExt = fileOrBlob instanceof File && fileOrBlob.name.includes(".")
-      ? fileOrBlob.name.split(".").pop()
-      : "jpg";
-
-    const fileName = `procedure_${Date.now()}_${Math.random()
-      .toString(36)
-      .substring(2, 9)}.${fileExt}`;
+    const timestamp = Date.now();
+    const randomStr = Math.random().toString(36).substring(2, 8);
+    const fileName = `completion_${timestamp}_${randomStr}.jpg`;
     const filePath = `completions/${fileName}`;
+    const bucketName = "appointment-ids";
 
-    let bucketName = "appointment-ids";
-
-    let { error: uploadError } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from(bucketName)
       .upload(filePath, fileOrBlob, {
         contentType: "image/jpeg",
@@ -185,20 +174,8 @@ export const appointmentService = {
         upsert: true,
       });
 
-    if (uploadError && uploadError.message.toLowerCase().includes("bucket not found")) {
-      bucketName = "appointments";
-      const retry = await supabase.storage
-        .from(bucketName)
-        .upload(filePath, fileOrBlob, {
-          contentType: "image/jpeg",
-          cacheControl: "3600",
-          upsert: true,
-        });
-      uploadError = retry.error;
-    }
-
     if (uploadError) {
-      console.error("uploadCompletionPhoto error:", uploadError.message);
+      console.error("Storage upload failed:", uploadError);
       throw uploadError;
     }
 
@@ -209,7 +186,6 @@ export const appointmentService = {
     return publicUrlData.publicUrl;
   },
 
-  // I-update ang schedule at status (ginagamit sa Admin Appointments tab)
   async updateScheduleAndStatus(
     id: string,
     payload: { date: string; time: string; status: string }
@@ -233,7 +209,6 @@ export const appointmentService = {
     return mapRowToAppointment(data);
   },
 
-  // Kumpletuhin ang appointment at i-save ang remarks at proof photo URL
   async completeAppointment(
     id: string,
     remarks: string,
@@ -254,7 +229,6 @@ export const appointmentService = {
     }
   },
 
-  // I-update ang simpleng status
   async updateStatus(id: string, status: string): Promise<Appointment> {
     const { data, error } = await supabase
       .from("appointments")
