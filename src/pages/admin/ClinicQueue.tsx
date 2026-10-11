@@ -93,7 +93,7 @@ export default function ClinicQueue() {
     };
   }, [loadAppointments]);
 
-  // Live Queue (Confirmed para sa araw na ito, naka-sort 24-hr AM bago PM)
+  // Live Queue (Confirmed para sa araw na ito, naka-sort AM bago PM)
   const todayQueue = useMemo(() => {
     return appointments
       .filter((a) => a.date === todayStr && a.status === "Confirmed")
@@ -106,7 +106,7 @@ export default function ClinicQueue() {
 
   const nowServing = todayQueue[0] || null;
 
-  // TV Broadcast Trigger (Sa TV monitor lamang tutunog)
+  // TV Broadcast Trigger (sa TV monitor display lang mag-aanunsyo)
   const triggerTvBroadcast = async (item: Appointment & { queueNumber: number }) => {
     try {
       setIsCalling(item.id);
@@ -185,7 +185,7 @@ export default function ClinicQueue() {
       setIsCameraActive(true);
     } catch (err) {
       console.error("Webcam access error:", err);
-      setCameraError("Cannot access camera. Check browser permissions or privacy shutters.");
+      setCameraError("Hindi ma-access ang camera. Pakisuri ang camera permission o privacy cover.");
       setIsCameraActive(false);
     }
   };
@@ -216,7 +216,7 @@ export default function ClinicQueue() {
     canvas.toBlob(
       (blob) => {
         if (blob) {
-          const file = new File([blob], `consultation-${Date.now()}.jpg`, { type: "image/jpeg" });
+          const file = new File([blob], `proof_${Date.now()}.jpg`, { type: "image/jpeg" });
           setProofFile(file);
           setProofPreview(canvas.toDataURL("image/jpeg"));
           stopWebcam();
@@ -262,6 +262,7 @@ export default function ClinicQueue() {
       setIsSubmittingCompletion(true);
       let proofUrl: string | undefined = undefined;
 
+      // Kung may file na nakuha sa camera o in-attach, i-upload sa storage bago i-complete
       if (proofFile) {
         proofUrl = await appointmentService.uploadCompletionPhoto(proofFile);
       }
@@ -275,9 +276,9 @@ export default function ClinicQueue() {
       stopWebcam();
       setSelectedAppointment(null);
       await loadAppointments();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error completing consultation:", err);
-      alert("Failed to finalize consultation records. Please try again.");
+      alert(`Nagkaroon ng problema sa pag-save: ${err?.message || "Pakisubukang muli."}`);
     } finally {
       setIsSubmittingCompletion(false);
     }
