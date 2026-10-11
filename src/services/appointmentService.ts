@@ -143,7 +143,9 @@ export const appointmentService = {
 
   async uploadIdPhoto(file: File): Promise<string> {
     const fileExt = file.name.split(".").pop() || "jpg";
-    const fileName = `philsys_${Date.now()}_${Math.random()       .toString(36)       .substring(2, 9)}.${fileExt}`;
+    const fileName = `philsys_${Date.now()}_${Math.random()
+      .toString(36)
+      .substring(2, 9)}.${fileExt}`;
     const filePath = `ids/${fileName}`;
 
     let bucketName = "appointment-ids";
@@ -240,8 +242,8 @@ export const appointmentService = {
 
   async deductMedicineStock(medicineId: string, quantity: number): Promise<void> {
     const { error } = await supabase.rpc("deduct_medicine_stock", {
-      p_medicine_id: medicineId,
-      p_quantity: quantity,
+      p_medicine_id: String(medicineId),
+      p_quantity: Number(quantity),
     });
 
     if (error) {
@@ -256,7 +258,6 @@ export const appointmentService = {
     completionPhotoUrl?: string,
     dispenseList?: DispenseItem[]
   ): Promise<void> {
-    // 1. Process multiple medicine deductions sequentially
     const validDispenses = (dispenseList || []).filter(
       (item) => item.medicineId && item.quantity > 0
     );
@@ -265,16 +266,14 @@ export const appointmentService = {
       await this.deductMedicineStock(item.medicineId, item.quantity);
     }
 
-    // 2. Format audit logs in remarks for all dispensed items
     let finalRemarks = remarks.trim();
     if (validDispenses.length > 0) {
       const summary = validDispenses
-        .map((item) => `${item.quantity}x${item.medicineName}`)
+        .map((item) => `${item.quantity}x ${item.medicineName}`)
         .join(", ");
       finalRemarks += `\n[Dispensed: ${summary}]`;
     }
 
-    // 3. Mark appointment as completed
     const { error } = await supabase
       .from("appointments")
       .update({

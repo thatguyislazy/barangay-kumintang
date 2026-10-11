@@ -26,7 +26,7 @@ import type { Appointment } from "../../types/appointment";
 
 interface SelectedMedicineEntry {
   medicineId: string;
-  quantity: number;
+  quantity: number | "";
 }
 
 function parseTimeToMinutes(timeStr?: string): number {
@@ -150,7 +150,6 @@ export default function ClinicQueue() {
   }, [selectedAppointment]);
 
   const handleAddMedicineRow = () => {
-    // Pick the first available medicine that isn't already in the list
     const usedIds = new Set(dispenseEntries.map((e) => e.medicineId));
     const nextAvailable = medicinesList.find((m) => m.stock_quantity > 0 && !usedIds.has(m.id));
 
@@ -170,10 +169,20 @@ export default function ClinicQueue() {
     );
   };
 
-  const handleQuantityChange = (index: number, newQty: number) => {
-    setDispenseEntries((prev) =>
-      prev.map((entry, i) => (i === index ? { ...entry, quantity: newQty } : entry))
-    );
+  const handleQuantityChange = (index: number, valStr: string) => {
+    if (valStr === "") {
+      setDispenseEntries((prev) =>
+        prev.map((entry, i) => (i === index ? { ...entry, quantity: "" } : entry))
+      );
+      return;
+    }
+
+    const parsed = parseInt(valStr, 10);
+    if (!isNaN(parsed)) {
+      setDispenseEntries((prev) =>
+        prev.map((entry, i) => (i === index ? { ...entry, quantity: parsed } : entry))
+      );
+    }
   };
 
   const triggerTvBroadcast = async (item: Appointment & { queueNumber: number }) => {
@@ -344,7 +353,6 @@ export default function ClinicQueue() {
       return;
     }
 
-    // Validate multiple medicine entries
     const validDispenseList: DispenseItem[] = [];
     const seenIds = new Set<string>();
 
@@ -357,27 +365,29 @@ export default function ClinicQueue() {
       }
       seenIds.add(entry.medicineId);
 
-      const medInfo = medicinesList.find((m) => m.id === entry.medicineId);
+      const medInfo = medicinesList.find((m) => String(m.id) === String(entry.medicineId));
       if (!medInfo) {
         setFormError("One of the selected medicines could not be found.");
         return;
       }
 
-      if (entry.quantity <= 0) {
-        setFormError(`Please specify a quantity greater than 0 for ${medInfo.name}.`);
+      const qtyNum = typeof entry.quantity === "number" ? entry.quantity : parseInt(String(entry.quantity), 10);
+
+      if (isNaN(qtyNum) || qtyNum <= 0) {
+        setFormError(`Please specify a valid quantity greater than 0 for ${medInfo.name}.`);
         return;
       }
 
-      if (entry.quantity > medInfo.stock_quantity) {
+      if (qtyNum > medInfo.stock_quantity) {
         setFormError(
-          `Insufficient stock for ${medInfo.name}. Available: ${medInfo.stock_quantity} ${medInfo.unit}, Requested: ${entry.quantity}`
+          `Insufficient stock for ${medInfo.name}. Available: ${medInfo.stock_quantity} ${medInfo.unit}, Requested: ${qtyNum}`
         );
         return;
       }
 
       validDispenseList.push({
-        medicineId: medInfo.id,
-        quantity: entry.quantity,
+        medicineId: String(medInfo.id),
+        quantity: qtyNum,
         medicineName: `${medInfo.name} (${medInfo.dosage})`,
       });
     }
@@ -413,7 +423,6 @@ export default function ClinicQueue() {
       description="Manage today's consultation line, send announcements to TV monitor, and verify patient records."
     >
       <div className="space-y-6">
-        {/* Top Control Bar */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="font-display text-2xl font-bold text-navy-900 dark:text-white">
@@ -450,7 +459,6 @@ export default function ClinicQueue() {
           </div>
         </div>
 
-        {/* NOW SERVING BOX */}
         {nowServing && (
           <div className="relative overflow-hidden rounded-3xl border-2 border-blue-500/40 bg-gradient-to-r from-blue-900/10 via-white to-blue-50/50 p-6 shadow-xl dark:border-blue-500/30 dark:from-navy-900 dark:via-navy-900/90 dark:to-blue-950/40">
             <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
@@ -504,7 +512,6 @@ export default function ClinicQueue() {
           </div>
         )}
 
-        {/* FULL PATIENT QUEUE TABLE */}
         {isLoading ? (
           <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-2xl border border-navy-100 bg-white/50 dark:border-white/10 dark:bg-navy-900/40">
             <Loader2 className="h-7 w-7 animate-spin text-navy-800 dark:text-white" />
@@ -678,7 +685,8 @@ export default function ClinicQueue() {
                   ) : (
                     <div className="space-y-2.5">
                       {dispenseEntries.map((entry, idx) => {
-                        const selectedMed = medicinesList.find((m) => m.id === entry.medicineId);
+                        const selectedMed = medicinesList.find((m) => String(m.id) === String(entry.medicineId));
+                        const currentQty = typeof entry.quantity === "number" ? entry.quantity : 0;
 
                         return (
                           <div
@@ -713,9 +721,7 @@ export default function ClinicQueue() {
                                   min={1}
                                   max={selectedMed?.stock_quantity || 100}
                                   value={entry.quantity}
-                                  onChange={(e) =>
-                                    handleQuantityChange(idx, parseInt(e.target.value, 10) || 1)
-                                  }
+                                  onChange={(e) => handleQuantityChange(idx, e.target.value)}
                                   disabled={!entry.medicineId}
                                   placeholder="Qty"
                                   className="w-full rounded-lg border border-navy-200 bg-white px-2.5 py-1.5 text-xs text-navy-900 outline-none focus:border-blue-500 dark:border-white/15 dark:bg-navy-900 dark:text-white disabled:opacity-50"
@@ -743,12 +749,12 @@ export default function ClinicQueue() {
                                   After dispensing:{" "}
                                   <strong
                                     className={
-                                      selectedMed.stock_quantity - entry.quantity < 0
+                                      selectedMed.stock_quantity - currentQty < 0
                                         ? "text-red-500"
                                         : "text-blue-600 dark:text-blue-400"
                                     }
                                   >
-                                    {Math.max(0, selectedMed.stock_quantity - entry.quantity)} {selectedMed.unit}
+                                    {Math.max(0, selectedMed.stock_quantity - currentQty)} {selectedMed.unit}
                                   </strong>
                                 </span>
                               </div>
