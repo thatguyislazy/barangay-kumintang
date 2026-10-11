@@ -142,13 +142,13 @@ export const appointmentService = {
     let bucketName = "appointment-ids";
     let { error: uploadError } = await supabase.storage
       .from(bucketName)
-      .upload(filePath, file, { cacheControl: "3600", upsert: false });
+      .upload(filePath, file, { cacheControl: "3600", upsert: true });
 
     if (uploadError && uploadError.message.toLowerCase().includes("bucket not found")) {
       bucketName = "appointments";
       const retry = await supabase.storage
         .from(bucketName)
-        .upload(filePath, file, { cacheControl: "3600", upsert: false });
+        .upload(filePath, file, { cacheControl: "3600", upsert: true });
       uploadError = retry.error;
     }
 
@@ -164,24 +164,36 @@ export const appointmentService = {
     return publicUrlData.publicUrl;
   },
 
-  // Mag-upload ng consultation/procedure proof photo sa Supabase Storage
-  async uploadCompletionPhoto(file: File): Promise<string> {
-    const fileExt = file.name.split(".").pop() || "jpg";
-    const fileName = `consultation_${Date.now()}_${Math.random()
+  // Suportado pareho ang native File (Upload) at binary Blob (Webcam Snap)
+  async uploadCompletionPhoto(fileOrBlob: File | Blob): Promise<string> {
+    const fileExt = fileOrBlob instanceof File && fileOrBlob.name.includes(".")
+      ? fileOrBlob.name.split(".").pop()
+      : "jpg";
+
+    const fileName = `procedure_${Date.now()}_${Math.random()
       .toString(36)
       .substring(2, 9)}.${fileExt}`;
     const filePath = `completions/${fileName}`;
 
     let bucketName = "appointment-ids";
+
     let { error: uploadError } = await supabase.storage
       .from(bucketName)
-      .upload(filePath, file, { cacheControl: "3600", upsert: false });
+      .upload(filePath, fileOrBlob, {
+        contentType: "image/jpeg",
+        cacheControl: "3600",
+        upsert: true,
+      });
 
     if (uploadError && uploadError.message.toLowerCase().includes("bucket not found")) {
       bucketName = "appointments";
       const retry = await supabase.storage
         .from(bucketName)
-        .upload(filePath, file, { cacheControl: "3600", upsert: false });
+        .upload(filePath, fileOrBlob, {
+          contentType: "image/jpeg",
+          cacheControl: "3600",
+          upsert: true,
+        });
       uploadError = retry.error;
     }
 
@@ -242,7 +254,7 @@ export const appointmentService = {
     }
   },
 
-  // I-update ang simpleng status (hal. Confirmed o Cancelled)
+  // I-update ang simpleng status
   async updateStatus(id: string, status: string): Promise<Appointment> {
     const { data, error } = await supabase
       .from("appointments")

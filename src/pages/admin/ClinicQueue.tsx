@@ -38,28 +38,15 @@ function parseTimeToMinutes(timeStr?: string): number {
   return hours * 60 + minutes;
 }
 
-// Helper: Direktang i-convert ang Base64 papuntang File para hindi mawala sa state
-function dataURLtoFile(dataurl: string, filename: string): File {
-  const arr = dataurl.split(",");
-  const mime = arr[0].match(/:(.*?);/)![1];
-  const bstr = atob(arr[1]);
-  let n = bstr.length;
-  const u8arr = new Uint8Array(n);
-  while (n--) {
-    u8arr[n] = bstr.charCodeAt(n);
-  }
-  return new File([u8arr], filename, { type: mime });
-}
-
 export default function ClinicQueue() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [isCalling, setIsCalling] = useState<string | null>(null);
 
-  // Completion Form State
+  // Completion Form State (Tumatanggap ng File o Blob)
   const [remarks, setRemarks] = useState<string>("");
-  const [proofFile, setProofFile] = useState<File | null>(null);
+  const [proofFile, setProofFile] = useState<File | Blob | null>(null);
   const [proofPreview, setProofPreview] = useState<string>("");
   const [isSubmittingCompletion, setIsSubmittingCompletion] = useState<boolean>(false);
 
@@ -106,6 +93,7 @@ export default function ClinicQueue() {
     };
   }, [loadAppointments]);
 
+  // Live Queue para sa araw na ito
   const todayQueue = useMemo(() => {
     return appointments
       .filter((a) => a.date === todayStr && a.status === "Confirmed")
@@ -118,7 +106,7 @@ export default function ClinicQueue() {
 
   const nowServing = todayQueue[0] || null;
 
-  // TV Broadcast Trigger (Hindi tutunog sa admin)
+  // TV Broadcast Trigger (sa TV monitor display lamang magpapatugtog ng anunsyo)
   const triggerTvBroadcast = async (item: Appointment & { queueNumber: number }) => {
     try {
       setIsCalling(item.id);
@@ -197,7 +185,7 @@ export default function ClinicQueue() {
       setIsCameraActive(true);
     } catch (err) {
       console.error("Webcam access error:", err);
-      setCameraError("Hindi ma-access ang camera. Pakisuri ang permissions.");
+      setCameraError("Hindi ma-access ang camera. Pakisuri ang camera permission o privacy cover.");
       setIsCameraActive(false);
     }
   };
@@ -212,7 +200,7 @@ export default function ClinicQueue() {
     }
   }, [isCameraActive]);
 
-  // Synchronous capture para 100% laging may File object na handa
+  // Kumuha ng preview at binary blob para sa Supabase Storage
   const handleCaptureFromWebcam = () => {
     if (!videoRef.current) return;
 
@@ -226,16 +214,21 @@ export default function ClinicQueue() {
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    try {
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-      const generatedFile = dataURLtoFile(dataUrl, `procedure_${Date.now()}.jpg`);
-      
-      setProofPreview(dataUrl);
-      setProofFile(generatedFile);
-      stopWebcam();
-    } catch (err) {
-      console.error("Error creating photo file from canvas:", err);
-    }
+    // Kumuha muna ng base64 data para sa visual preview
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+    setProofPreview(dataUrl);
+
+    // Kumuha ng binary Blob para sa storage upload
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          setProofFile(blob);
+          stopWebcam();
+        }
+      },
+      "image/jpeg",
+      0.9
+    );
   };
 
   const handleOpenCompleteModal = (item: Appointment) => {
@@ -273,11 +266,9 @@ export default function ClinicQueue() {
       setIsSubmittingCompletion(true);
       let proofUrl: string | undefined = undefined;
 
-      // Siguraduhing may file bago tawagin ang storage upload
+      // I-upload ang picture kung mayroong na-capture o na-attach
       if (proofFile) {
-        console.log("Uploading procedure proof photo:", proofFile.name, proofFile.size);
         proofUrl = await appointmentService.uploadCompletionPhoto(proofFile);
-        console.log("Uploaded successfully to URL:", proofUrl);
       }
 
       await appointmentService.completeAppointment(
@@ -550,7 +541,7 @@ export default function ClinicQueue() {
                   />
                 </div>
 
-                {/* Proof Section */}
+                {/* Photo Documentation Section */}
                 <div>
                   <div className="flex items-center justify-between pb-1.5">
                     <label className="block text-xs font-semibold uppercase tracking-wider text-ink-600 dark:text-white/70">
