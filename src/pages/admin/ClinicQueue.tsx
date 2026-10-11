@@ -15,9 +15,10 @@ import {
   VideoOff,
   RotateCcw,
   AlertCircle,
+  Pill,
 } from "lucide-react";
 import { AdminLayout } from "../../components/admin/AdminLayout";
-import { appointmentService } from "../../services/appointmentService";
+import { appointmentService, type MedicineItem } from "../../services/appointmentService";
 import { supabase } from "../../supabase/supabase";
 import type { Appointment } from "../../types/appointment";
 
@@ -39,7 +40,6 @@ function parseTimeToMinutes(timeStr?: string): number {
   return hours * 60 + minutes;
 }
 
-// Convert Base64 dataURL directly into a File without using fetch() (CSP Compliant)
 function base64ToFile(dataURI: string, filename: string): File {
   const parts = dataURI.split(",");
   const mime = parts[0].match(/:(.*?);/)?.[1] || "image/jpeg";
@@ -67,6 +67,11 @@ export default function ClinicQueue() {
   const [isSubmittingCompletion, setIsSubmittingCompletion] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  // Medicine Inventory State
+  const [medicinesList, setMedicinesList] = useState<MedicineItem[]>([]);
+  const [selectedMedicineId, setSelectedMedicineId] = useState<string>("");
+  const [dispenseQuantity, setDispenseQuantity] = useState<number>(1);
+
   // Camera & File States
   const [captureMode, setCaptureMode] = useState<"upload" | "webcam">("upload");
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
@@ -91,8 +96,18 @@ export default function ClinicQueue() {
     }
   }, []);
 
+  const loadMedicines = useCallback(async () => {
+    try {
+      const data = await appointmentService.listMedicines();
+      setMedicinesList(data);
+    } catch (err) {
+      console.error("ClinicQueue: Error loading medicines:", err);
+    }
+  }, []);
+
   useEffect(() => {
     loadAppointments();
+    loadMedicines();
 
     const channel = supabase
       .channel("admin_db_queue_sync")
@@ -108,7 +123,7 @@ export default function ClinicQueue() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [loadAppointments]);
+  }, [loadAppointments, loadMedicines]);
 
   const todayQueue = useMemo(() => {
     return appointments
@@ -121,6 +136,16 @@ export default function ClinicQueue() {
   }, [appointments, todayStr]);
 
   const nowServing = todayQueue[0] || null;
+
+  const isMedicineAppointment = useMemo(() => {
+    if (!selectedAppointment) return false;
+    const r = (selectedAppointment.reason || "").toLowerCase();
+    return r.includes("medicin") || r.includes("gamot") || r.includes("pharmac") || r.includes("prescri");
+  }, [selectedAppointment]);
+
+  const selectedMedicine = useMemo(() => {
+    return medicinesList.find((m) => m.id === selectedMedicineId) || null;
+  }, [medicinesList, selectedMedicineId]);
 
   const triggerTvBroadcast = async (item: Appointment & { queueNumber: number }) => {
     try {
@@ -215,7 +240,6 @@ export default function ClinicQueue() {
     }
   }, [isCameraActive]);
 
-  // CSP-Compliant Webcam Snap (Uses direct canvas data to Base64 byte conversion)
   const handleCaptureFromWebcam = () => {
     if (!videoRef.current) return;
 
@@ -238,7 +262,6 @@ export default function ClinicQueue() {
       const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
       setProofPreview(dataUrl);
 
-      // Convert to real File without fetch() to avoid CSP violations
       const realFile = base64ToFile(dataUrl, `webcam_${Date.now()}.jpg`);
       setProofFile(realFile);
       setFormError(null);
@@ -255,8 +278,11 @@ export default function ClinicQueue() {
     setProofFile(null);
     setProofPreview("");
     setFormError(null);
+    setSelectedMedicineId("");
+    setDispenseQuantity(1);
     setCaptureMode("upload");
     setCameraError(null);
+    loadMedicines();
   };
 
   const handleCloseModal = () => {
@@ -283,28 +309,49 @@ export default function ClinicQueue() {
     e.preventDefault();
     if (!selectedAppointment) return;
 
-    // MANDATORY PROOF CHECK
     if (!proofFile) {
       setFormError("Procedure proof photo is required. Please capture via camera or attach a file.");
       return;
+    }
+
+    if (selectedMedicineId) {
+      if (!selectedMedicine) {
+        setFormError("Selected medicine is invalid.");
+        return;
+      }
+      if (dispenseQuantity <= 0) {
+        setFormError("Dispense quantity must be greater than 0.");
+        return;
+      }
+      if (dispenseQuantity > selectedMedicine.stock_quantity) {
+        setFormError(`Insufficient stock for ${selectedMedicine.name}. Available: ${selectedMedicine.stock_quantity}`);
+        return;
+      }
     }
 
     try {
       setIsSubmittingCompletion(true);
       setFormError(null);
 
-      // Upload proof photo to Supabase storage
       const proofUrl = await appointmentService.uploadCompletionPhoto(proofFile);
+
+      const dispensePayload = selectedMedicineId && selectedMedicine ? {
+        medicineId: selectedMedicine.id,
+        quantity: dispenseQuantity,
+        medicineName: `${selectedMedicine.name} (${selectedMedicine.dosage})`,
+      } : undefined;
 
       await appointmentService.completeAppointment(
         selectedAppointment.id,
         remarks.trim(),
-        proofUrl
+        proofUrl,
+        dispensePayload
       );
 
       stopWebcam();
       setSelectedAppointment(null);
       await loadAppointments();
+      await loadMedicines();
     } catch (err: any) {
       console.error("Error completing consultation:", err);
       setFormError(err?.message || "Failed to finalize consultation records. Please try again.");
@@ -319,7 +366,6 @@ export default function ClinicQueue() {
       description="Manage today's consultation line, send announcements to TV monitor, and verify patient records."
     >
       <div className="space-y-6">
-        {/* Top Control Bar */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="font-display text-2xl font-bold text-navy-900 dark:text-white">
@@ -356,7 +402,6 @@ export default function ClinicQueue() {
           </div>
         </div>
 
-        {/* NOW SERVING BOX */}
         {nowServing && (
           <div className="relative overflow-hidden rounded-3xl border-2 border-blue-500/40 bg-gradient-to-r from-blue-900/10 via-white to-blue-50/50 p-6 shadow-xl dark:border-blue-500/30 dark:from-navy-900 dark:via-navy-900/90 dark:to-blue-950/40">
             <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
@@ -410,7 +455,6 @@ export default function ClinicQueue() {
           </div>
         )}
 
-        {/* FULL PATIENT QUEUE TABLE */}
         {isLoading ? (
           <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-2xl border border-navy-100 bg-white/50 dark:border-white/10 dark:bg-navy-900/40">
             <Loader2 className="h-7 w-7 animate-spin text-navy-800 dark:text-white" />
@@ -543,7 +587,7 @@ export default function ClinicQueue() {
               className="absolute inset-0 bg-navy-950/60 backdrop-blur-sm"
               onClick={handleCloseModal}
             />
-            <div className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl dark:bg-navy-900 border border-navy-100 dark:border-white/10">
+            <div className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl dark:bg-navy-900 border border-navy-100 dark:border-white/10 max-h-[92vh] overflow-y-auto">
               <h2 className="font-display text-xl font-bold text-navy-900 dark:text-white">
                 Finalize Consultation - {selectedAppointment.patientName}
               </h2>
@@ -559,6 +603,59 @@ export default function ClinicQueue() {
               )}
 
               <form onSubmit={handleCompleteConsultation} className="mt-4 space-y-4">
+                {/* MEDICINE INVENTORY DISPENSING */}
+                <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-900/40 dark:bg-blue-950/20 space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-blue-800 dark:text-blue-300">
+                    <Pill className="h-4 w-4" />
+                    Dispense Medicine from Stock {isMedicineAppointment ? "(Recommended)" : "(Optional)"}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div className="sm:col-span-2">
+                      <label className="block text-[11px] font-semibold text-ink-600 dark:text-white/70 mb-1">
+                        Select Medicine
+                      </label>
+                      <select
+                        value={selectedMedicineId}
+                        onChange={(e) => setSelectedMedicineId(e.target.value)}
+                        className="w-full rounded-xl border border-navy-200 bg-white px-3 py-2 text-xs text-navy-900 outline-none focus:border-blue-500 dark:border-white/15 dark:bg-navy-800 dark:text-white"
+                      >
+                        <option value="">-- No medicine dispensed --</option>
+                        {medicinesList.map((med) => (
+                          <option
+                            key={med.id}
+                            value={med.id}
+                            disabled={med.stock_quantity <= 0}
+                          >
+                            {med.name} {med.dosage ? `(${med.dosage})` : ""} - Stock: {med.stock_quantity} {med.unit}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-ink-600 dark:text-white/70 mb-1">
+                        Quantity ({selectedMedicine?.unit || "units"})
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={selectedMedicine?.stock_quantity || 100}
+                        value={dispenseQuantity}
+                        onChange={(e) => setDispenseQuantity(parseInt(e.target.value, 10) || 1)}
+                        disabled={!selectedMedicineId}
+                        className="w-full rounded-xl border border-navy-200 bg-white px-3 py-2 text-xs text-navy-900 outline-none focus:border-blue-500 dark:border-white/15 dark:bg-navy-800 dark:text-white disabled:opacity-50"
+                      />
+                    </div>
+                  </div>
+
+                  {selectedMedicine && (
+                    <div className="text-[11px] text-blue-700 dark:text-blue-300 font-medium">
+                      Remaining stock after deduction: <strong>{Math.max(0, selectedMedicine.stock_quantity - dispenseQuantity)} {selectedMedicine.unit}</strong>
+                    </div>
+                  )}
+                </div>
+
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-ink-600 dark:text-white/70">
                     Clinical Remarks & Prescriptions Given <span className="text-red-500">*</span>
@@ -568,12 +665,12 @@ export default function ClinicQueue() {
                     rows={3}
                     value={remarks}
                     onChange={(e) => setRemarks(e.target.value)}
-                    placeholder="Enter diagnosis, medicines given, or health advisories..."
+                    placeholder="Enter diagnosis, instructions, or doctor remarks..."
                     className="mt-1.5 w-full rounded-xl border border-navy-200 bg-white p-3 text-sm text-navy-900 outline-none focus:border-navy-500 dark:border-white/15 dark:bg-white/5 dark:text-white"
                   />
                 </div>
 
-                {/* Procedure Proof Photo (MANDATORY) */}
+                {/* Procedure Proof Photo (Required) */}
                 <div>
                   <div className="flex items-center justify-between pb-1.5">
                     <label className="block text-xs font-semibold uppercase tracking-wider text-ink-600 dark:text-white/70">
@@ -613,7 +710,6 @@ export default function ClinicQueue() {
                     </div>
                   </div>
 
-                  {/* Mode 1: File Upload */}
                   {captureMode === "upload" && (
                     <div className="mt-2">
                       <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-navy-300 p-4 text-sm font-medium text-navy-700 hover:bg-navy-50 dark:border-white/20 dark:text-white/80 dark:hover:bg-white/5 transition-colors">
@@ -629,7 +725,6 @@ export default function ClinicQueue() {
                     </div>
                   )}
 
-                  {/* Mode 2: Live Webcam */}
                   {captureMode === "webcam" && (
                     <div className="mt-2 space-y-2">
                       {videoDevices.length > 1 && (
@@ -707,7 +802,6 @@ export default function ClinicQueue() {
                     </div>
                   )}
 
-                  {/* Photo Preview Result */}
                   {proofPreview && (
                     <div className="mt-3 relative rounded-xl overflow-hidden border border-emerald-300 dark:border-emerald-800/50">
                       <img
@@ -749,7 +843,7 @@ export default function ClinicQueue() {
                     className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-soft hover:bg-emerald-500 disabled:opacity-50 cursor-pointer"
                   >
                     {isSubmittingCompletion && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {isSubmittingCompletion ? "Saving & Uploading..." : "Mark as Completed"}
+                    {isSubmittingCompletion ? "Saving & Deducting Stock..." : "Mark as Completed"}
                   </button>
                 </div>
               </form>

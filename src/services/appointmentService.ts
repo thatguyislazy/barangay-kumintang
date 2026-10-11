@@ -1,6 +1,14 @@
 import { supabase } from "../supabase/supabase";
 import type { Appointment } from "../types/appointment";
 
+export interface MedicineItem {
+  id: string;
+  name: string;
+  dosage: string;
+  stock_quantity: number;
+  unit: string;
+}
+
 export const MAX_APPOINTMENT_CAPACITY = 20;
 
 export const CLINIC_20_SLOTS: string[] = [
@@ -210,16 +218,57 @@ export const appointmentService = {
     return mapRowToAppointment(data);
   },
 
+  // --- MEDICINE INVENTORY OPERATIONS ---
+
+  async listMedicines(): Promise<MedicineItem[]> {
+    const { data, error } = await supabase
+      .from("medicines")
+      .select("*")
+      .order("name", { ascending: true });
+
+    if (error) {
+      console.error("appointmentService.listMedicines error:", error.message);
+      return [];
+    }
+
+    return data || [];
+  },
+
+  async deductMedicineStock(medicineId: string, quantity: number): Promise<void> {
+    const { error } = await supabase.rpc("deduct_medicine_stock", {
+      p_medicine_id: medicineId,
+      p_quantity: quantity,
+    });
+
+    if (error) {
+      console.error("appointmentService.deductMedicineStock error:", error.message);
+      throw new Error(error.message);
+    }
+  },
+
   async completeAppointment(
     id: string,
     remarks: string,
-    completionPhotoUrl?: string
+    completionPhotoUrl?: string,
+    dispense?: { medicineId: string; quantity: number; medicineName: string }
   ): Promise<void> {
+    // 1. If medicine was dispensed, perform atomic inventory deduction
+    if (dispense && dispense.medicineId && dispense.quantity > 0) {
+      await this.deductMedicineStock(dispense.medicineId, dispense.quantity);
+    }
+
+    // 2. Append dispensed audit trail into clinical remarks
+    let finalRemarks = remarks.trim();
+    if (dispense && dispense.quantity > 0) {
+      finalRemarks += `\n[Dispensed: ${dispense.quantity} ${dispense.medicineName}]`;
+    }
+
+    // 3. Mark appointment as completed
     const { error } = await supabase
       .from("appointments")
       .update({
         status: "Completed",
-        remarks: remarks.trim(),
+        remarks: finalRemarks,
         completion_photo_url: completionPhotoUrl || null,
       })
       .eq("id", id);
