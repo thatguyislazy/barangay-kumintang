@@ -16,11 +16,18 @@ import {
   RotateCcw,
   AlertCircle,
   Pill,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { AdminLayout } from "../../components/admin/AdminLayout";
-import { appointmentService, type MedicineItem } from "../../services/appointmentService";
+import { appointmentService, type MedicineItem, type DispenseItem } from "../../services/appointmentService";
 import { supabase } from "../../supabase/supabase";
 import type { Appointment } from "../../types/appointment";
+
+interface SelectedMedicineEntry {
+  medicineId: string;
+  quantity: number;
+}
 
 function parseTimeToMinutes(timeStr?: string): number {
   if (!timeStr) return 9999;
@@ -67,10 +74,9 @@ export default function ClinicQueue() {
   const [isSubmittingCompletion, setIsSubmittingCompletion] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Medicine Inventory State
+  // Multiple Medicine Selection State
   const [medicinesList, setMedicinesList] = useState<MedicineItem[]>([]);
-  const [selectedMedicineId, setSelectedMedicineId] = useState<string>("");
-  const [dispenseQuantity, setDispenseQuantity] = useState<number>(1);
+  const [dispenseEntries, setDispenseEntries] = useState<SelectedMedicineEntry[]>([]);
 
   // Camera & File States
   const [captureMode, setCaptureMode] = useState<"upload" | "webcam">("upload");
@@ -143,9 +149,32 @@ export default function ClinicQueue() {
     return r.includes("medicin") || r.includes("gamot") || r.includes("pharmac") || r.includes("prescri");
   }, [selectedAppointment]);
 
-  const selectedMedicine = useMemo(() => {
-    return medicinesList.find((m) => m.id === selectedMedicineId) || null;
-  }, [medicinesList, selectedMedicineId]);
+  const handleAddMedicineRow = () => {
+    // Pick the first available medicine that isn't already in the list
+    const usedIds = new Set(dispenseEntries.map((e) => e.medicineId));
+    const nextAvailable = medicinesList.find((m) => m.stock_quantity > 0 && !usedIds.has(m.id));
+
+    setDispenseEntries((prev) => [
+      ...prev,
+      { medicineId: nextAvailable ? nextAvailable.id : "", quantity: 1 },
+    ]);
+  };
+
+  const handleRemoveMedicineRow = (index: number) => {
+    setDispenseEntries((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleMedicineChange = (index: number, newId: string) => {
+    setDispenseEntries((prev) =>
+      prev.map((entry, i) => (i === index ? { ...entry, medicineId: newId } : entry))
+    );
+  };
+
+  const handleQuantityChange = (index: number, newQty: number) => {
+    setDispenseEntries((prev) =>
+      prev.map((entry, i) => (i === index ? { ...entry, quantity: newQty } : entry))
+    );
+  };
 
   const triggerTvBroadcast = async (item: Appointment & { queueNumber: number }) => {
     try {
@@ -278,11 +307,12 @@ export default function ClinicQueue() {
     setProofFile(null);
     setProofPreview("");
     setFormError(null);
-    setSelectedMedicineId("");
-    setDispenseQuantity(1);
     setCaptureMode("upload");
     setCameraError(null);
     loadMedicines();
+
+    const isMed = (item.reason || "").toLowerCase().match(/(medicin|gamot|pharmac|prescri)/);
+    setDispenseEntries(isMed ? [{ medicineId: "", quantity: 1 }] : []);
   };
 
   const handleCloseModal = () => {
@@ -314,19 +344,42 @@ export default function ClinicQueue() {
       return;
     }
 
-    if (selectedMedicineId) {
-      if (!selectedMedicine) {
-        setFormError("Selected medicine is invalid.");
+    // Validate multiple medicine entries
+    const validDispenseList: DispenseItem[] = [];
+    const seenIds = new Set<string>();
+
+    for (const entry of dispenseEntries) {
+      if (!entry.medicineId) continue;
+
+      if (seenIds.has(entry.medicineId)) {
+        setFormError("Duplicate medicine selected. Please consolidate quantities on the same line.");
         return;
       }
-      if (dispenseQuantity <= 0) {
-        setFormError("Dispense quantity must be greater than 0.");
+      seenIds.add(entry.medicineId);
+
+      const medInfo = medicinesList.find((m) => m.id === entry.medicineId);
+      if (!medInfo) {
+        setFormError("One of the selected medicines could not be found.");
         return;
       }
-      if (dispenseQuantity > selectedMedicine.stock_quantity) {
-        setFormError(`Insufficient stock for ${selectedMedicine.name}. Available: ${selectedMedicine.stock_quantity}`);
+
+      if (entry.quantity <= 0) {
+        setFormError(`Please specify a quantity greater than 0 for ${medInfo.name}.`);
         return;
       }
+
+      if (entry.quantity > medInfo.stock_quantity) {
+        setFormError(
+          `Insufficient stock for ${medInfo.name}. Available: ${medInfo.stock_quantity} ${medInfo.unit}, Requested: ${entry.quantity}`
+        );
+        return;
+      }
+
+      validDispenseList.push({
+        medicineId: medInfo.id,
+        quantity: entry.quantity,
+        medicineName: `${medInfo.name} (${medInfo.dosage})`,
+      });
     }
 
     try {
@@ -335,17 +388,11 @@ export default function ClinicQueue() {
 
       const proofUrl = await appointmentService.uploadCompletionPhoto(proofFile);
 
-      const dispensePayload = selectedMedicineId && selectedMedicine ? {
-        medicineId: selectedMedicine.id,
-        quantity: dispenseQuantity,
-        medicineName: `${selectedMedicine.name} (${selectedMedicine.dosage})`,
-      } : undefined;
-
       await appointmentService.completeAppointment(
         selectedAppointment.id,
         remarks.trim(),
         proofUrl,
-        dispensePayload
+        validDispenseList
       );
 
       stopWebcam();
@@ -366,6 +413,7 @@ export default function ClinicQueue() {
       description="Manage today's consultation line, send announcements to TV monitor, and verify patient records."
     >
       <div className="space-y-6">
+        {/* Top Control Bar */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="font-display text-2xl font-bold text-navy-900 dark:text-white">
@@ -402,6 +450,7 @@ export default function ClinicQueue() {
           </div>
         </div>
 
+        {/* NOW SERVING BOX */}
         {nowServing && (
           <div className="relative overflow-hidden rounded-3xl border-2 border-blue-500/40 bg-gradient-to-r from-blue-900/10 via-white to-blue-50/50 p-6 shadow-xl dark:border-blue-500/30 dark:from-navy-900 dark:via-navy-900/90 dark:to-blue-950/40">
             <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
@@ -455,6 +504,7 @@ export default function ClinicQueue() {
           </div>
         )}
 
+        {/* FULL PATIENT QUEUE TABLE */}
         {isLoading ? (
           <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-2xl border border-navy-100 bg-white/50 dark:border-white/10 dark:bg-navy-900/40">
             <Loader2 className="h-7 w-7 animate-spin text-navy-800 dark:text-white" />
@@ -603,55 +653,109 @@ export default function ClinicQueue() {
               )}
 
               <form onSubmit={handleCompleteConsultation} className="mt-4 space-y-4">
-                {/* MEDICINE INVENTORY DISPENSING */}
+                {/* MULTIPLE MEDICINE INVENTORY DISPENSING */}
                 <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-900/40 dark:bg-blue-950/20 space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-blue-800 dark:text-blue-300">
-                    <Pill className="h-4 w-4" />
-                    Dispense Medicine from Stock {isMedicineAppointment ? "(Recommended)" : "(Optional)"}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-blue-800 dark:text-blue-300">
+                      <Pill className="h-4 w-4" />
+                      Dispense Medicines from Stock {isMedicineAppointment ? "(Recommended)" : "(Optional)"}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleAddMedicineRow}
+                      className="inline-flex items-center gap-1 rounded-lg border border-blue-300 bg-white px-2.5 py-1 text-[11px] font-bold text-blue-700 shadow-sm hover:bg-blue-50 dark:border-blue-800 dark:bg-blue-900/50 dark:text-blue-300 cursor-pointer"
+                    >
+                      <Plus className="h-3 w-3" />
+                      Add Medicine
+                    </button>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    <div className="sm:col-span-2">
-                      <label className="block text-[11px] font-semibold text-ink-600 dark:text-white/70 mb-1">
-                        Select Medicine
-                      </label>
-                      <select
-                        value={selectedMedicineId}
-                        onChange={(e) => setSelectedMedicineId(e.target.value)}
-                        className="w-full rounded-xl border border-navy-200 bg-white px-3 py-2 text-xs text-navy-900 outline-none focus:border-blue-500 dark:border-white/15 dark:bg-navy-800 dark:text-white"
-                      >
-                        <option value="">-- No medicine dispensed --</option>
-                        {medicinesList.map((med) => (
-                          <option
-                            key={med.id}
-                            value={med.id}
-                            disabled={med.stock_quantity <= 0}
+                  {dispenseEntries.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-blue-200 py-3 text-center text-xs text-ink-500 dark:border-white/10 dark:text-white/50">
+                      No medicines queued to dispense. Click <strong>Add Medicine</strong> above if needed.
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {dispenseEntries.map((entry, idx) => {
+                        const selectedMed = medicinesList.find((m) => m.id === entry.medicineId);
+
+                        return (
+                          <div
+                            key={idx}
+                            className="rounded-xl border border-navy-100 bg-white p-2.5 shadow-sm dark:border-white/10 dark:bg-navy-800/80 space-y-1.5"
                           >
-                            {med.name} {med.dosage ? `(${med.dosage})` : ""} - Stock: {med.stock_quantity} {med.unit}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                            <div className="flex items-center gap-2">
+                              {/* Medicine Dropdown */}
+                              <div className="flex-1">
+                                <select
+                                  value={entry.medicineId}
+                                  onChange={(e) => handleMedicineChange(idx, e.target.value)}
+                                  className="w-full rounded-lg border border-navy-200 bg-white px-2.5 py-1.5 text-xs text-navy-900 outline-none focus:border-blue-500 dark:border-white/15 dark:bg-navy-900 dark:text-white"
+                                >
+                                  <option value="">-- Choose Medicine --</option>
+                                  {medicinesList.map((med) => (
+                                    <option
+                                      key={med.id}
+                                      value={med.id}
+                                      disabled={med.stock_quantity <= 0}
+                                    >
+                                      {med.name} {med.dosage ? `(${med.dosage})` : ""} - Stock: {med.stock_quantity} {med.unit}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
 
-                    <div>
-                      <label className="block text-[11px] font-semibold text-ink-600 dark:text-white/70 mb-1">
-                        Quantity ({selectedMedicine?.unit || "units"})
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={selectedMedicine?.stock_quantity || 100}
-                        value={dispenseQuantity}
-                        onChange={(e) => setDispenseQuantity(parseInt(e.target.value, 10) || 1)}
-                        disabled={!selectedMedicineId}
-                        className="w-full rounded-xl border border-navy-200 bg-white px-3 py-2 text-xs text-navy-900 outline-none focus:border-blue-500 dark:border-white/15 dark:bg-navy-800 dark:text-white disabled:opacity-50"
-                      />
-                    </div>
-                  </div>
+                              {/* Quantity Input */}
+                              <div className="w-24">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={selectedMed?.stock_quantity || 100}
+                                  value={entry.quantity}
+                                  onChange={(e) =>
+                                    handleQuantityChange(idx, parseInt(e.target.value, 10) || 1)
+                                  }
+                                  disabled={!entry.medicineId}
+                                  placeholder="Qty"
+                                  className="w-full rounded-lg border border-navy-200 bg-white px-2.5 py-1.5 text-xs text-navy-900 outline-none focus:border-blue-500 dark:border-white/15 dark:bg-navy-900 dark:text-white disabled:opacity-50"
+                                />
+                              </div>
 
-                  {selectedMedicine && (
-                    <div className="text-[11px] text-blue-700 dark:text-blue-300 font-medium">
-                      Remaining stock after deduction: <strong>{Math.max(0, selectedMedicine.stock_quantity - dispenseQuantity)} {selectedMedicine.unit}</strong>
+                              {/* Delete Button */}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveMedicineRow(idx)}
+                                className="rounded-lg p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 cursor-pointer"
+                                title="Remove item"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+
+                            {/* Remaining Stock Feedback */}
+                            {selectedMed && (
+                              <div className="flex justify-between px-1 text-[11px] text-ink-500 dark:text-white/60">
+                                <span>
+                                  Available: <strong>{selectedMed.stock_quantity} {selectedMed.unit}</strong>
+                                </span>
+                                <span>
+                                  After dispensing:{" "}
+                                  <strong
+                                    className={
+                                      selectedMed.stock_quantity - entry.quantity < 0
+                                        ? "text-red-500"
+                                        : "text-blue-600 dark:text-blue-400"
+                                    }
+                                  >
+                                    {Math.max(0, selectedMed.stock_quantity - entry.quantity)} {selectedMed.unit}
+                                  </strong>
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

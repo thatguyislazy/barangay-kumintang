@@ -9,6 +9,12 @@ export interface MedicineItem {
   unit: string;
 }
 
+export interface DispenseItem {
+  medicineId: string;
+  quantity: number;
+  medicineName: string;
+}
+
 export const MAX_APPOINTMENT_CAPACITY = 20;
 
 export const CLINIC_20_SLOTS: string[] = [
@@ -137,9 +143,7 @@ export const appointmentService = {
 
   async uploadIdPhoto(file: File): Promise<string> {
     const fileExt = file.name.split(".").pop() || "jpg";
-    const fileName = `philsys_${Date.now()}_${Math.random()
-      .toString(36)
-      .substring(2, 9)}.${fileExt}`;
+    const fileName = `philsys_${Date.now()}_${Math.random()       .toString(36)       .substring(2, 9)}.${fileExt}`;
     const filePath = `ids/${fileName}`;
 
     let bucketName = "appointment-ids";
@@ -250,17 +254,24 @@ export const appointmentService = {
     id: string,
     remarks: string,
     completionPhotoUrl?: string,
-    dispense?: { medicineId: string; quantity: number; medicineName: string }
+    dispenseList?: DispenseItem[]
   ): Promise<void> {
-    // 1. If medicine was dispensed, perform atomic inventory deduction
-    if (dispense && dispense.medicineId && dispense.quantity > 0) {
-      await this.deductMedicineStock(dispense.medicineId, dispense.quantity);
+    // 1. Process multiple medicine deductions sequentially
+    const validDispenses = (dispenseList || []).filter(
+      (item) => item.medicineId && item.quantity > 0
+    );
+
+    for (const item of validDispenses) {
+      await this.deductMedicineStock(item.medicineId, item.quantity);
     }
 
-    // 2. Append dispensed audit trail into clinical remarks
+    // 2. Format audit logs in remarks for all dispensed items
     let finalRemarks = remarks.trim();
-    if (dispense && dispense.quantity > 0) {
-      finalRemarks += `\n[Dispensed: ${dispense.quantity} ${dispense.medicineName}]`;
+    if (validDispenses.length > 0) {
+      const summary = validDispenses
+        .map((item) => `${item.quantity}x${item.medicineName}`)
+        .join(", ");
+      finalRemarks += `\n[Dispensed: ${summary}]`;
     }
 
     // 3. Mark appointment as completed
