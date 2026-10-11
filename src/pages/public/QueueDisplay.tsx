@@ -1,12 +1,10 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { Volume2, VolumeX, Clock, Users, Bell } from "lucide-react";
 import { supabase } from "../../supabase/supabase";
-import * as voiceModule from "../../services/voiceService";
+import { voiceService } from "../../services/voiceService";
 import type { Appointment } from "../../types/appointment";
 
-// Safe reference whether voiceService is exported default or named
-const voiceService = (voiceModule as any).voiceService || (voiceModule as any).default || voiceModule;
-
+// Converts "09:00 AM" or "02:20 PM" to minutes from midnight for 24-hour sorting
 function parseTimeToMinutes(timeStr?: string): number {
   if (!timeStr) return 9999;
   const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
@@ -100,6 +98,7 @@ export default function QueueDisplay() {
     };
   }, [fetchAppointments]);
 
+  // Overall chronological queue: sorted strictly by 24h clock minutes
   const queue = useMemo(() => {
     return [...appointments]
       .sort((a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time))
@@ -139,9 +138,7 @@ export default function QueueDisplay() {
     if (nowServing && audioEnabled && nowServing.id !== lastAnnouncedId) {
       setLastAnnouncedId(nowServing.id);
       const textToSpeak = `Calling Queue Number ${nowServing.queueNumber}, ${nowServing.patientName}, for ${nowServing.reason}. Please proceed to the clinic counter.`;
-      if (typeof voiceService?.speak === "function") {
-        voiceService.speak(textToSpeak);
-      }
+      voiceService.speak(textToSpeak);
     }
   }, [nowServing, audioEnabled, lastAnnouncedId]);
 
@@ -233,6 +230,7 @@ export default function QueueDisplay() {
         </div>
 
         <div className="grid flex-1 grid-cols-1 gap-6 md:grid-cols-3">
+          {/* VACCINATION */}
           <div className="flex flex-col rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl backdrop-blur-sm">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="flex items-center gap-2">
@@ -282,6 +280,7 @@ export default function QueueDisplay() {
             </div>
           </div>
 
+          {/* MEDICINE */}
           <div className="flex flex-col rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl backdrop-blur-sm">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="flex items-center gap-2">
@@ -331,6 +330,7 @@ export default function QueueDisplay() {
             </div>
           </div>
 
+          {/* FREE CHECK-UP */}
           <div className="flex flex-col rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-xl backdrop-blur-sm">
             <div className="flex items-center justify-between border-b border-slate-800 pb-4">
               <div className="flex items-center gap-2">

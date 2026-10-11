@@ -8,12 +8,9 @@ import {
 } from "lucide-react";
 import { AdminLayout } from "../../components/admin/AdminLayout";
 import { appointmentService } from "../../services/appointmentService";
-import * as voiceModule from "../../services/voiceService";
+import { voiceService } from "../../services/voiceService";
 import { supabase } from "../../supabase/supabase";
 import type { Appointment } from "../../types/appointment";
-
-// Safe reference whether voiceService is exported default or named
-const voiceService = (voiceModule as any).voiceService || (voiceModule as any).default || voiceModule;
 
 function parseTimeToMinutes(timeStr?: string): number {
   if (!timeStr) return 9999;
@@ -91,9 +88,7 @@ export default function ClinicQueue() {
 
   const handleCallPatient = (item: Appointment & { queueNumber: number }) => {
     const speech = `Calling Queue Number ${item.queueNumber}, ${item.patientName}, for ${item.reason}. Please proceed to the clinic triage counter.`;
-    if (typeof voiceService?.speak === "function") {
-      voiceService.speak(speech);
-    }
+    voiceService.speak(speech);
   };
 
   const handleOpenCompleteModal = (item: Appointment) => {
