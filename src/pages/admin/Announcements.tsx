@@ -124,7 +124,10 @@ export default function Announcements() {
   };
 
   return (
-    <AdminLayout>
+    <AdminLayout 
+      title="Announcements & Advisories"
+      description="Publish news, alerts, and graphics to the homepage hero banner."
+    >
       <div className="space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>

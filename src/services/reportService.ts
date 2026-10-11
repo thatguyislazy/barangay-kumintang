@@ -18,16 +18,18 @@ export const reportService = {
 
     const monthMap = new Map<string, number>();
     appointments.forEach((a) => {
-      const month = new Date(a.date).toLocaleString("en-US", { month: "short" });
+      // Use fallback if date is undefined to satisfy TypeScript Date constructor
+      const dateVal = a.date ? new Date(a.date) : new Date(a.createdAt);
+      const month = dateVal.toLocaleString("en-US", { month: "short" });
       monthMap.set(month, (monthMap.get(month) ?? 0) + 1);
     });
 
     return {
       totalAppointments: appointments.length,
-      totalPatients: patients.filter((p) => p.status === "Active").length,
+      totalPatients: patients.filter((p: any) => p.status === "Active").length,
       totalMedicines: medicines.length,
       lowStockCount: medicines.filter(
-        (m) => m.status === "Low Stock" || m.status === "Out of Stock"
+        (m: any) => m.status === "Low Stock" || m.status === "Out of Stock"
       ).length,
       appointmentsByStatus: byStatus,
       appointmentsByMonth: Array.from(monthMap.entries()).map(([month, count]) => ({

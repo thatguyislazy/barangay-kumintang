@@ -32,19 +32,27 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function load() {
-      const [apptStats, patients, medicines, appointments] = await Promise.all([
-        appointmentService.stats(),
+      const todayStr = new Date().toISOString().split("T")[0];
+      const [patients, medicines, appointments] = await Promise.all([
         patientService.list(),
         medicineService.list(),
         appointmentService.list(),
       ]);
+
+      const todayAppointments = appointments.filter((a) => a.date === todayStr);
+
       setStats({
-        appointmentsToday: apptStats,
-        totalPatients: patients.filter((p) => p.status === "Active").length,
+        appointmentsToday: {
+          total: todayAppointments.length,
+          pending: todayAppointments.filter((a) => a.status === "Pending").length,
+          confirmed: todayAppointments.filter((a) => a.status === "Confirmed").length,
+          completed: todayAppointments.filter((a) => a.status === "Completed").length,
+        },
+        totalPatients: patients.filter((p: any) => p.status === "Active").length,
         medicines: {
           total: medicines.length,
-          lowStock: medicines.filter((m) => m.status === "Low Stock").length,
-          outOfStock: medicines.filter((m) => m.status === "Out of Stock").length,
+          lowStock: medicines.filter((m: any) => m.status === "Low Stock").length,
+          outOfStock: medicines.filter((m: any) => m.status === "Out of Stock").length,
         },
       });
       setRecent(appointments.slice(0, 5));
