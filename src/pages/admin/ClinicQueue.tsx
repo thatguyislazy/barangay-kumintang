@@ -14,6 +14,7 @@ import {
   Video,
   VideoOff,
   RotateCcw,
+  AlertCircle,
 } from "lucide-react";
 import { AdminLayout } from "../../components/admin/AdminLayout";
 import { appointmentService } from "../../services/appointmentService";
@@ -38,6 +39,21 @@ function parseTimeToMinutes(timeStr?: string): number {
   return hours * 60 + minutes;
 }
 
+// Convert Base64 dataURL directly into a File without using fetch() (CSP Compliant)
+function base64ToFile(dataURI: string, filename: string): File {
+  const parts = dataURI.split(",");
+  const mime = parts[0].match(/:(.*?);/)?.[1] || "image/jpeg";
+  const binaryString = atob(parts[1]);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
+  return new File([bytes], filename, { type: mime, lastModified: Date.now() });
+}
+
 export default function ClinicQueue() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -46,9 +62,10 @@ export default function ClinicQueue() {
 
   // Completion Form State
   const [remarks, setRemarks] = useState<string>("");
-  const [proofFile, setProofFile] = useState<File | Blob | null>(null);
+  const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofPreview, setProofPreview] = useState<string>("");
   const [isSubmittingCompletion, setIsSubmittingCompletion] = useState<boolean>(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Camera & File States
   const [captureMode, setCaptureMode] = useState<"upload" | "webcam">("upload");
@@ -183,7 +200,7 @@ export default function ClinicQueue() {
       setIsCameraActive(true);
     } catch (err) {
       console.error("Webcam access error:", err);
-      setCameraError("Hindi ma-access ang camera. Pakisuri ang camera permission o privacy cover.");
+      setCameraError("Cannot access camera. Check device permissions or webcam connection.");
       setIsCameraActive(false);
     }
   };
@@ -198,30 +215,37 @@ export default function ClinicQueue() {
     }
   }, [isCameraActive]);
 
-  // Kumuha ng binary Blob gamit ang fetch API mula sa canvas dataUrl
-  const handleCaptureFromWebcam = async () => {
+  // CSP-Compliant Webcam Snap (Uses direct canvas data to Base64 byte conversion)
+  const handleCaptureFromWebcam = () => {
     if (!videoRef.current) return;
 
     const video = videoRef.current;
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      alert("Camera feed not ready yet. Please wait a second.");
+      return;
+    }
+
     const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 1280;
-    canvas.height = video.videoHeight || 720;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
 
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
-    setProofPreview(dataUrl);
-
     try {
-      const res = await fetch(dataUrl);
-      const blob = await res.blob();
-      setProofFile(blob);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.95);
+      setProofPreview(dataUrl);
+
+      // Convert to real File without fetch() to avoid CSP violations
+      const realFile = base64ToFile(dataUrl, `webcam_${Date.now()}.jpg`);
+      setProofFile(realFile);
+      setFormError(null);
       stopWebcam();
-    } catch (err) {
-      console.error("Failed to convert webcam snap to Blob:", err);
+    } catch (err: any) {
+      console.error("Error creating image file from canvas:", err);
+      alert("Failed to process photo: " + err.message);
     }
   };
 
@@ -230,6 +254,7 @@ export default function ClinicQueue() {
     setRemarks("");
     setProofFile(null);
     setProofPreview("");
+    setFormError(null);
     setCaptureMode("upload");
     setCameraError(null);
   };
@@ -238,12 +263,14 @@ export default function ClinicQueue() {
     if (isSubmittingCompletion) return;
     stopWebcam();
     setSelectedAppointment(null);
+    setFormError(null);
   };
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setProofFile(file);
+      setFormError(null);
       const reader = new FileReader();
       reader.onloadend = () => {
         setProofPreview(reader.result as string);
@@ -256,13 +283,18 @@ export default function ClinicQueue() {
     e.preventDefault();
     if (!selectedAppointment) return;
 
+    // MANDATORY PROOF CHECK
+    if (!proofFile) {
+      setFormError("Procedure proof photo is required. Please capture via camera or attach a file.");
+      return;
+    }
+
     try {
       setIsSubmittingCompletion(true);
-      let proofUrl: string | undefined = undefined;
+      setFormError(null);
 
-      if (proofFile) {
-        proofUrl = await appointmentService.uploadCompletionPhoto(proofFile);
-      }
+      // Upload proof photo to Supabase storage
+      const proofUrl = await appointmentService.uploadCompletionPhoto(proofFile);
 
       await appointmentService.completeAppointment(
         selectedAppointment.id,
@@ -275,7 +307,7 @@ export default function ClinicQueue() {
       await loadAppointments();
     } catch (err: any) {
       console.error("Error completing consultation:", err);
-      alert(`Hindi nai-save: ${err?.message || "Pakisubukang muli."}`);
+      setFormError(err?.message || "Failed to finalize consultation records. Please try again.");
     } finally {
       setIsSubmittingCompletion(false);
     }
@@ -287,6 +319,7 @@ export default function ClinicQueue() {
       description="Manage today's consultation line, send announcements to TV monitor, and verify patient records."
     >
       <div className="space-y-6">
+        {/* Top Control Bar */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="font-display text-2xl font-bold text-navy-900 dark:text-white">
@@ -323,6 +356,7 @@ export default function ClinicQueue() {
           </div>
         </div>
 
+        {/* NOW SERVING BOX */}
         {nowServing && (
           <div className="relative overflow-hidden rounded-3xl border-2 border-blue-500/40 bg-gradient-to-r from-blue-900/10 via-white to-blue-50/50 p-6 shadow-xl dark:border-blue-500/30 dark:from-navy-900 dark:via-navy-900/90 dark:to-blue-950/40">
             <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
@@ -376,6 +410,7 @@ export default function ClinicQueue() {
           </div>
         )}
 
+        {/* FULL PATIENT QUEUE TABLE */}
         {isLoading ? (
           <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-2xl border border-navy-100 bg-white/50 dark:border-white/10 dark:bg-navy-900/40">
             <Loader2 className="h-7 w-7 animate-spin text-navy-800 dark:text-white" />
@@ -501,6 +536,7 @@ export default function ClinicQueue() {
           </div>
         )}
 
+        {/* CONSULTATION COMPLETION MODAL */}
         {selectedAppointment && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div
@@ -515,25 +551,33 @@ export default function ClinicQueue() {
                 Ticket: {selectedAppointment.id} • Service: {selectedAppointment.reason}
               </p>
 
-              <form onSubmit={handleCompleteConsultation} className="mt-5 space-y-4">
+              {formError && (
+                <div className="mt-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleCompleteConsultation} className="mt-4 space-y-4">
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider text-ink-600 dark:text-white/70">
-                    Clinical Remarks & Prescriptions Given *
+                    Clinical Remarks & Prescriptions Given <span className="text-red-500">*</span>
                   </label>
                   <textarea
                     required
                     rows={3}
                     value={remarks}
                     onChange={(e) => setRemarks(e.target.value)}
-                    placeholder="Enter diagnosis, given medicines, or health advisories..."
+                    placeholder="Enter diagnosis, medicines given, or health advisories..."
                     className="mt-1.5 w-full rounded-xl border border-navy-200 bg-white p-3 text-sm text-navy-900 outline-none focus:border-navy-500 dark:border-white/15 dark:bg-white/5 dark:text-white"
                   />
                 </div>
 
+                {/* Procedure Proof Photo (MANDATORY) */}
                 <div>
                   <div className="flex items-center justify-between pb-1.5">
                     <label className="block text-xs font-semibold uppercase tracking-wider text-ink-600 dark:text-white/70">
-                      Proof Photo of Consultation (Optional)
+                      Procedure Proof Photo <span className="text-red-500 font-bold">* (Required)</span>
                     </label>
                     <div className="inline-flex rounded-lg border border-navy-200 bg-navy-50 p-0.5 dark:border-white/10 dark:bg-white/5">
                       <button
@@ -569,11 +613,12 @@ export default function ClinicQueue() {
                     </div>
                   </div>
 
+                  {/* Mode 1: File Upload */}
                   {captureMode === "upload" && (
                     <div className="mt-2">
                       <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-navy-300 p-4 text-sm font-medium text-navy-700 hover:bg-navy-50 dark:border-white/20 dark:text-white/80 dark:hover:bg-white/5 transition-colors">
                         <Upload className="h-4 w-4 text-blue-600" />
-                        <span>Click to attach photo from device</span>
+                        <span>Click to attach procedure photo from device</span>
                         <input
                           type="file"
                           accept="image/*"
@@ -584,6 +629,7 @@ export default function ClinicQueue() {
                     </div>
                   )}
 
+                  {/* Mode 2: Live Webcam */}
                   {captureMode === "webcam" && (
                     <div className="mt-2 space-y-2">
                       {videoDevices.length > 1 && (
@@ -661,6 +707,7 @@ export default function ClinicQueue() {
                     </div>
                   )}
 
+                  {/* Photo Preview Result */}
                   {proofPreview && (
                     <div className="mt-3 relative rounded-xl overflow-hidden border border-emerald-300 dark:border-emerald-800/50">
                       <img
@@ -669,7 +716,7 @@ export default function ClinicQueue() {
                         className="h-36 w-full object-cover"
                       />
                       <div className="absolute bottom-2 left-2 bg-emerald-600/90 text-white text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-sm">
-                        ✓ Photo Ready to Submit
+                        ✓ Procedure Proof Ready
                       </div>
                       <button
                         type="button"
@@ -702,7 +749,7 @@ export default function ClinicQueue() {
                     className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-soft hover:bg-emerald-500 disabled:opacity-50 cursor-pointer"
                   >
                     {isSubmittingCompletion && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {isSubmittingCompletion ? "Saving & Uploading Photo..." : "Mark as Completed"}
+                    {isSubmittingCompletion ? "Saving & Uploading..." : "Mark as Completed"}
                   </button>
                 </div>
               </form>
