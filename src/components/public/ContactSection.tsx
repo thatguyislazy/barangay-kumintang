@@ -85,12 +85,12 @@ export function ContactSection() {
               </div>
             ) : (
               <form className="space-y-5" onSubmit={handleSubmit}>
-                <Input label="Name" name="name" placeholder="Juan Dela Cruz" required />
+                <Input label="Name" name="name" placeholder="Rafael Nodalo" required />
                 <Input
                   label="Email"
                   name="email"
                   type="email"
-                  placeholder="juan@email.com"
+                  placeholder="rafael.nodalo@email.com"
                   required
                 />
                 <Textarea

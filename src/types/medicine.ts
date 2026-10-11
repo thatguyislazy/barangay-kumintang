@@ -17,3 +17,14 @@ export interface MedicineFormData {
   unit: string;
   expirationDate: string;
 }
+
+export interface MedicineRow {
+  id: string;
+  name: string;
+  category: string;
+  quantity: number;
+  unit: string;
+  expiration_date: string;
+  status: StockStatus;
+  created_at: string;
+}

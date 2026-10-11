@@ -23,9 +23,9 @@ export const barangayConfig = {
   logo: sealLogo,
   heroImage: heroImage,
   stats: [
-    { label: "Households Served", value: "2,400+" },
-    { label: "Digital Requests Processed", value: "1,100+" },
-    { label: "Years of Service", value: "89" },
+    { label: "Households Served", value: "" },
+    { label: "Digital Requests Processed", value: "" },
+    { label: "Years of Service", value: "" },
   ],
 };
 

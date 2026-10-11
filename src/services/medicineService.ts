@@ -1,6 +1,7 @@
-import type { Medicine, MedicineFormData, StockStatus } from "../types/medicine";
+import { supabase } from "../supabase/supabase";
+import type { Medicine, MedicineFormData, MedicineRow, StockStatus } from "../types/medicine";
 
-function computeStatus(quantity: number, expirationDate: string): StockStatus {
+export function computeStatus(quantity: number, expirationDate: string): StockStatus {
   const daysToExpire =
     (new Date(expirationDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
   if (quantity <= 0) return "Out of Stock";
@@ -9,103 +10,138 @@ function computeStatus(quantity: number, expirationDate: string): StockStatus {
   return "In Stock";
 }
 
-let medicines: Medicine[] = [
-  {
-    id: "MED-001",
-    name: "Paracetamol 500mg",
-    category: "Analgesic",
-    quantity: 320,
-    unit: "tablets",
-    expirationDate: "2027-06-01",
-    status: "In Stock",
-  },
-  {
-    id: "MED-002",
-    name: "Amoxicillin 500mg",
-    category: "Antibiotic",
-    quantity: 15,
-    unit: "capsules",
-    expirationDate: "2026-12-15",
-    status: "Low Stock",
-  },
-  {
-    id: "MED-003",
-    name: "Oral Rehydration Salts",
-    category: "Electrolyte",
-    quantity: 0,
-    unit: "sachets",
-    expirationDate: "2026-10-01",
-    status: "Out of Stock",
-  },
-  {
-    id: "MED-004",
-    name: "Cetirizine 10mg",
-    category: "Antihistamine",
-    quantity: 80,
-    unit: "tablets",
-    expirationDate: "2026-10-05",
-    status: "Expiring Soon",
-  },
-  {
-    id: "MED-005",
-    name: "Multivitamins (Adult)",
-    category: "Supplement",
-    quantity: 150,
-    unit: "tablets",
-    expirationDate: "2027-03-20",
-    status: "In Stock",
-  },
-];
-
-medicines = medicines.map((m) => ({ ...m, status: computeStatus(m.quantity, m.expirationDate) }));
-
-function delay(ms = 500) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function mapRowToMedicine(row: MedicineRow): Medicine {
+  return {
+    id: row.id,
+    name: row.name,
+    category: row.category,
+    quantity: row.quantity,
+    unit: row.unit,
+    expirationDate: row.expiration_date,
+    status: row.status,
+  };
 }
 
 export const medicineService = {
   async list(): Promise<Medicine[]> {
-    await delay();
-    return [...medicines];
+    const { data, error } = await supabase
+      .from("medicines")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching medicines:", error.message);
+      throw error;
+    }
+
+    return (data as MedicineRow[]).map(mapRowToMedicine);
   },
 
   async create(data: MedicineFormData): Promise<Medicine> {
-    await delay(700);
-    const newMed: Medicine = {
-      ...data,
-      id: `MED-${String(medicines.length + 1).padStart(3, "0")}`,
-      status: computeStatus(data.quantity, data.expirationDate),
+    const id = `MED-${Date.now().toString().slice(-4)}`;
+    const status = computeStatus(data.quantity, data.expirationDate);
+
+    const payload = {
+      id,
+      name: data.name,
+      category: data.category,
+      quantity: data.quantity,
+      unit: data.unit,
+      expiration_date: data.expirationDate,
+      status,
     };
-    medicines = [newMed, ...medicines];
-    return newMed;
+
+    const { data: inserted, error } = await supabase
+      .from("medicines")
+      .insert([payload])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error creating medicine:", error.message);
+      throw error;
+    }
+
+    return mapRowToMedicine(inserted as MedicineRow);
   },
 
   async update(id: string, data: Partial<MedicineFormData>): Promise<Medicine> {
-    await delay(500);
-    medicines = medicines.map((m) => {
-      if (m.id !== id) return m;
-      const merged = { ...m, ...data };
-      return { ...merged, status: computeStatus(merged.quantity, merged.expirationDate) };
-    });
-    const updated = medicines.find((m) => m.id === id);
-    if (!updated) throw new Error("Medicine not found");
-    return updated;
+    const { data: current, error: fetchErr } = await supabase
+      .from("medicines")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (fetchErr || !current) {
+      throw new Error("Medicine not found");
+    }
+
+    const nextQuantity = data.quantity !== undefined ? data.quantity : current.quantity;
+    const nextExpDate = data.expirationDate !== undefined ? data.expirationDate : current.expiration_date;
+    const nextStatus = computeStatus(nextQuantity, nextExpDate);
+
+    const payload: Partial<MedicineRow> = {
+      ...(data.name !== undefined && { name: data.name }),
+      ...(data.category !== undefined && { category: data.category }),
+      ...(data.quantity !== undefined && { quantity: data.quantity }),
+      ...(data.unit !== undefined && { unit: data.unit }),
+      ...(data.expirationDate !== undefined && { expiration_date: data.expirationDate }),
+      status: nextStatus,
+    };
+
+    const { data: updated, error } = await supabase
+      .from("medicines")
+      .update(payload)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error updating medicine:", error.message);
+      throw error;
+    }
+
+    return mapRowToMedicine(updated as MedicineRow);
   },
 
   async remove(id: string): Promise<void> {
-    await delay(400);
-    medicines = medicines.filter((m) => m.id !== id);
+    const { error } = await supabase
+      .from("medicines")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Error deleting medicine:", error.message);
+      throw error;
+    }
   },
 
   async adjustStock(id: string, delta: number): Promise<Medicine> {
-    await delay(300);
-    medicines = medicines.map((m) => {
-      if (m.id !== id) return m;
-      const quantity = Math.max(0, m.quantity + delta);
-      return { ...m, quantity, status: computeStatus(quantity, m.expirationDate) };
-    });
-    const updated = medicines.find((m) => m.id === id);
-    if (!updated) throw new Error("Medicine not found");
-    return updated;
+    const { data: current, error: fetchErr } = await supabase
+      .from("medicines")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (fetchErr || !current) {
+      throw new Error("Medicine not found");
+    }
+
+    const nextQuantity = Math.max(0, current.quantity + delta);
+    const nextStatus = computeStatus(nextQuantity, current.expiration_date);
+
+    const { data: updated, error } = await supabase
+      .from("medicines")
+      .update({ quantity: nextQuantity, status: nextStatus })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error adjusting stock:", error.message);
+      throw error;
+    }
+
+    return mapRowToMedicine(updated as MedicineRow);
   },
 };

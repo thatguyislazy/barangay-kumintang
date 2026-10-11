@@ -2,9 +2,11 @@ import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
   CalendarClock,
+  Activity,
   Users,
   Pill,
   BarChart3,
+  Megaphone,
   LogOut,
   X,
 } from "lucide-react";
@@ -14,7 +16,9 @@ import { barangayConfig } from "../../config/barangay";
 
 const navItems = [
   { to: "/admin/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/admin/announcements", label: "Announcements", icon: Megaphone },
   { to: "/admin/appointments", label: "Appointments", icon: CalendarClock },
+  { to: "/admin/queue", label: "Clinic Queue", icon: Activity },
   { to: "/admin/patients", label: "Patient Records", icon: Users },
   { to: "/admin/medicines", label: "Medicine Inventory", icon: Pill },
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },

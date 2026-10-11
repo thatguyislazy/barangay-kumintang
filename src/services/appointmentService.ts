@@ -1,111 +1,276 @@
-import type { Appointment, AppointmentFormData, AppointmentStatus } from "../types/appointment";
+import { supabase } from "../supabase/supabase";
+import type {
+  Appointment,
+  AppointmentFormData,
+  AppointmentRow,
+  AppointmentStatus,
+} from "../types/appointment";
 
-// Mock/local data store. Swap the internals of these functions for real
-// API / Supabase / Firebase calls later without touching consuming pages.
-let appointments: Appointment[] = [
-  {
-    id: "APT-1001",
-    patientName: "Maria Santos",
-    contactNumber: "0917 234 5678",
-    barangay: "Kumintang Ilaya",
-    date: "2026-09-02",
-    time: "09:00 AM",
-    reason: "General checkup",
-    status: "Confirmed",
-    createdAt: "2026-08-25T09:12:00Z",
-  },
-  {
-    id: "APT-1002",
-    patientName: "Jose Dimaculangan",
-    contactNumber: "0928 555 1122",
-    barangay: "Kumintang Ilaya",
-    date: "2026-09-02",
-    time: "10:30 AM",
-    reason: "Vaccination follow-up",
-    status: "Pending",
-    createdAt: "2026-08-27T14:03:00Z",
-  },
-  {
-    id: "APT-1003",
-    patientName: "Angelica Reyes",
-    contactNumber: "0906 812 4490",
-    barangay: "Kumintang Ilaya",
-    date: "2026-08-29",
-    time: "01:00 PM",
-    reason: "Prenatal consultation",
-    status: "Completed",
-    createdAt: "2026-08-20T08:40:00Z",
-  },
-  {
-    id: "APT-1004",
-    patientName: "Ramon Villareal",
-    contactNumber: "0933 720 6651",
-    barangay: "Kumintang Ilaya",
-    date: "2026-08-31",
-    time: "03:30 PM",
-    reason: "Blood pressure monitoring",
-    status: "Cancelled",
-    createdAt: "2026-08-22T11:20:00Z",
-  },
-  {
-    id: "APT-1005",
-    patientName: "Carmela Aquino",
-    contactNumber: "0945 112 8890",
-    barangay: "Kumintang Ilaya",
-    date: "2026-09-03",
-    time: "08:30 AM",
-    reason: "Child immunization",
-    status: "Confirmed",
-    createdAt: "2026-08-26T10:00:00Z",
-  },
+export const MAX_APPOINTMENT_CAPACITY = 20;
+
+// Exactly 20 distinct 20-minute slots between 8:00 AM and 5:00 PM
+export const CLINIC_20_SLOTS = [
+  "08:00 AM",
+  "08:20 AM",
+  "08:40 AM",
+  "09:00 AM",
+  "09:20 AM",
+  "09:40 AM",
+  "10:00 AM",
+  "10:20 AM",
+  "10:40 AM",
+  "11:00 AM",
+  "11:20 AM",
+  "01:00 PM",
+  "01:20 PM",
+  "01:40 PM",
+  "02:00 PM",
+  "02:20 PM",
+  "02:40 PM",
+  "03:00 PM",
+  "03:20 PM",
+  "03:40 PM",
+  "04:00 PM",
 ];
 
-function delay(ms = 500) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function generateId() {
-  const nextNum = 1000 + appointments.length + 1;
-  return `APT-${nextNum}`;
+function mapRowToAppointment(row: AppointmentRow): Appointment {
+  return {
+    id: row.id,
+    patientName: row.patient_name,
+    contactNumber: row.contact_number,
+    barangay: row.barangay,
+    date: row.date ?? undefined,
+    time: row.time ?? undefined,
+    reason: row.reason,
+    notes: row.notes ?? undefined,
+    idPhotoUrl: row.id_photo_url ?? undefined,
+    remarks: row.remarks ?? undefined,
+    completionPhotoUrl: row.completion_photo_url ?? undefined,
+    status: row.status,
+    createdAt: row.created_at,
+  };
 }
 
 export const appointmentService = {
-  async list(): Promise<Appointment[]> {
-    await delay();
-    return [...appointments].sort((a, b) => (a.date < b.date ? 1 : -1));
+  // Counts active intake requests for today (Pending or Confirmed)
+  async getDailyIntakeCount(): Promise<number> {
+    const today = new Date().toISOString().split("T")[0];
+    const { count, error } = await supabase
+      .from("appointments")
+      .select("*", { count: "exact", head: true })
+      .gte("created_at", `${today}T00:00:00.000Z`)
+      .lte("created_at", `${today}T23:59:59.999Z`)
+      .neq("status", "Cancelled");
+
+    if (error) {
+      console.error("Error fetching intake count:", error.message);
+      return 0;
+    }
+
+    return count || 0;
   },
 
-  async create(data: AppointmentFormData): Promise<Appointment> {
-    await delay(900);
-    const newAppointment: Appointment = {
-      id: generateId(),
-      ...data,
-      status: "Pending",
-      createdAt: new Date().toISOString(),
+  // Count confirmed bookings for a specific scheduled date (excludes cancelled)
+  async getSlotCount(date: string): Promise<number> {
+    const { count, error } = await supabase
+      .from("appointments")
+      .select("*", { count: "exact", head: true })
+      .eq("date", date)
+      .neq("status", "Cancelled");
+
+    if (error) {
+      console.error("Error fetching slot count:", error.message);
+      return 0;
+    }
+
+    return count || 0;
+  },
+
+  // Get already occupied time slots for a specific date
+  async getTakenTimeSlots(date: string): Promise<string[]> {
+    const { data, error } = await supabase
+      .from("appointments")
+      .select("time")
+      .eq("date", date)
+      .neq("status", "Cancelled");
+
+    if (error || !data) {
+      return [];
+    }
+
+    return data.map((d) => d.time).filter(Boolean) as string[];
+  },
+
+  async uploadIdPhoto(file: File): Promise<string> {
+    const fileExt = file.name.split(".").pop();
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+    const filePath = `residence-proofs/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("id-verifications")
+      .upload(filePath, file, {
+        cacheControl: "3600",
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error("Storage upload error:", uploadError.message);
+      throw uploadError;
+    }
+
+    const { data } = supabase.storage
+      .from("id-verifications")
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
+  },
+
+  // Upload proof of consultation / camera picture taken by nurse
+  async uploadCompletionPhoto(file: File): Promise<string> {
+    const fileExt = file.name.split(".").pop();
+    const fileName = `proof-${Date.now()}-${Math.random().toString(36).substring(2, 7)}.${fileExt}`;
+    const filePath = `served/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from("consultation-proofs")
+      .upload(filePath, file, {
+        cacheControl: "3600",
+        upsert: false,
+      });
+
+    if (uploadError) {
+      console.error("Proof storage upload error:", uploadError.message);
+      throw uploadError;
+    }
+
+    const { data } = supabase.storage
+      .from("consultation-proofs")
+      .getPublicUrl(filePath);
+
+    return data.publicUrl;
+  },
+
+  async list(): Promise<Appointment[]> {
+    const { data, error } = await supabase
+      .from("appointments")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching appointments:", error.message);
+      throw error;
+    }
+
+    return (data as AppointmentRow[]).map(mapRowToAppointment);
+  },
+
+  async create(formData: AppointmentFormData): Promise<Appointment> {
+    const intakeCount = await this.getDailyIntakeCount();
+    if (intakeCount >= MAX_APPOINTMENT_CAPACITY) {
+      throw new Error(`Daily booking quota reached (${MAX_APPOINTMENT_CAPACITY} appointments maximum). Please check back tomorrow.`);
+    }
+
+    const customId = `APT-${Date.now().toString().slice(-4)}`;
+
+    const payload = {
+      id: customId,
+      patient_name: formData.patientName,
+      contact_number: formData.contactNumber,
+      barangay: formData.barangay,
+      date: null,
+      time: null,
+      reason: formData.reason,
+      notes: formData.notes || null,
+      id_photo_url: formData.idPhotoUrl || null,
+      remarks: null,
+      completion_photo_url: null,
+      status: "Pending" as AppointmentStatus,
     };
-    appointments = [newAppointment, ...appointments];
-    return newAppointment;
+
+    const { data, error } = await supabase
+      .from("appointments")
+      .insert([payload])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error creating appointment:", error.message);
+      throw error;
+    }
+
+    return mapRowToAppointment(data as AppointmentRow);
+  },
+
+  async updateScheduleAndStatus(
+    id: string,
+    params: { date?: string; time?: string; status: AppointmentStatus }
+  ): Promise<Appointment> {
+    if (params.date && params.status === "Confirmed") {
+      const slots = await this.getSlotCount(params.date);
+      if (slots >= MAX_APPOINTMENT_CAPACITY) {
+        throw new Error(`This date has reached the maximum capacity (${MAX_APPOINTMENT_CAPACITY} slots).`);
+      }
+    }
+
+    const payload: Partial<AppointmentRow> = {
+      status: params.status,
+      ...(params.date !== undefined && { date: params.date }),
+      ...(params.time !== undefined && { time: params.time }),
+    };
+
+    const { data, error } = await supabase
+      .from("appointments")
+      .update(payload)
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error updating appointment schedule:", error.message);
+      throw error;
+    }
+
+    return mapRowToAppointment(data as AppointmentRow);
   },
 
   async updateStatus(id: string, status: AppointmentStatus): Promise<Appointment> {
-    await delay(400);
-    appointments = appointments.map((appt) =>
-      appt.id === id ? { ...appt, status } : appt
-    );
-    const updated = appointments.find((a) => a.id === id);
-    if (!updated) throw new Error("Appointment not found");
-    return updated;
+    const { data, error } = await supabase
+      .from("appointments")
+      .update({ status })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error updating status:", error.message);
+      throw error;
+    }
+
+    return mapRowToAppointment(data as AppointmentRow);
   },
 
-  async stats() {
-    await delay(200);
-    const today = new Date().toISOString().slice(0, 10);
-    const todays = appointments.filter((a) => a.date === today);
-    return {
-      total: todays.length,
-      pending: appointments.filter((a) => a.status === "Pending").length,
-      confirmed: appointments.filter((a) => a.status === "Confirmed").length,
-      completed: appointments.filter((a) => a.status === "Completed").length,
-    };
+  // Nurse completes consultation with remarks and optional photo proof
+  async completeAppointment(
+    id: string,
+    remarks: string,
+    completionPhotoUrl?: string
+  ): Promise<Appointment> {
+    const { data, error } = await supabase
+      .from("appointments")
+      .update({
+        status: "Completed",
+        remarks: remarks || null,
+        completion_photo_url: completionPhotoUrl || null,
+      })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error completing appointment:", error.message);
+      throw error;
+    }
+
+    return mapRowToAppointment(data as AppointmentRow);
   },
 };

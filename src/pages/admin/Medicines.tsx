@@ -38,9 +38,15 @@ export default function Medicines() {
   const [saving, setSaving] = useState(false);
 
   async function load() {
-    setLoading(true);
-    setMedicines(await medicineService.list());
-    setLoading(false);
+    try {
+      setLoading(true);
+      const data = await medicineService.list();
+      setMedicines(data);
+    } catch (err) {
+      console.error("Failed to fetch medicines:", err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -77,26 +83,42 @@ export default function Medicines() {
 
   async function handleSave() {
     if (!form.name.trim() || !form.expirationDate) return;
-    setSaving(true);
-    if (editing) {
-      const updated = await medicineService.update(editing.id, form);
-      setMedicines((prev) => prev.map((m) => (m.id === editing.id ? updated : m)));
-    } else {
-      const created = await medicineService.create(form);
-      setMedicines((prev) => [created, ...prev]);
+    try {
+      setSaving(true);
+      if (editing) {
+        const updated = await medicineService.update(editing.id, form);
+        setMedicines((prev) => prev.map((m) => (m.id === editing.id ? updated : m)));
+      } else {
+        const created = await medicineService.create(form);
+        setMedicines((prev) => [created, ...prev]);
+      }
+      setAddOpen(false);
+    } catch (err) {
+      console.error("Failed to save medicine:", err);
+      alert("Failed to save medicine to database.");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
-    setAddOpen(false);
   }
 
   async function handleRemove(id: string) {
-    await medicineService.remove(id);
-    setMedicines((prev) => prev.filter((m) => m.id !== id));
+    if (!confirm("Are you sure you want to delete this medicine record?")) return;
+    try {
+      await medicineService.remove(id);
+      setMedicines((prev) => prev.filter((m) => m.id !== id));
+    } catch (err) {
+      console.error("Failed to delete medicine:", err);
+      alert("Failed to delete medicine from database.");
+    }
   }
 
   async function handleAdjust(id: string, delta: number) {
-    const updated = await medicineService.adjustStock(id, delta);
-    setMedicines((prev) => prev.map((m) => (m.id === id ? updated : m)));
+    try {
+      const updated = await medicineService.adjustStock(id, delta);
+      setMedicines((prev) => prev.map((m) => (m.id === id ? updated : m)));
+    } catch (err) {
+      console.error("Failed to adjust stock:", err);
+    }
   }
 
   return (
@@ -122,7 +144,7 @@ export default function Medicines() {
               </option>
             ))}
           </Select>
-          <Button onClick={openAdd} className="shrink-0">
+          <Button onClick={openAdd} className="shrink-0 cursor-pointer">
             <Plus className="h-4 w-4" /> Add Medicine
           </Button>
         </div>
@@ -168,7 +190,7 @@ export default function Medicines() {
                         <button
                           onClick={() => handleAdjust(m.id, -1)}
                           aria-label="Decrease stock"
-                          className="rounded-md border border-surface-border p-1 text-ink-500 hover:bg-surface-soft dark:border-white/15 dark:text-white/60 dark:hover:bg-white/10"
+                          className="rounded-md border border-surface-border p-1 text-ink-500 hover:bg-surface-soft dark:border-white/15 dark:text-white/60 dark:hover:bg-white/10 cursor-pointer"
                         >
                           <Minus className="h-3.5 w-3.5" />
                         </button>
@@ -178,7 +200,7 @@ export default function Medicines() {
                         <button
                           onClick={() => handleAdjust(m.id, 1)}
                           aria-label="Increase stock"
-                          className="rounded-md border border-surface-border p-1 text-ink-500 hover:bg-surface-soft dark:border-white/15 dark:text-white/60 dark:hover:bg-white/10"
+                          className="rounded-md border border-surface-border p-1 text-ink-500 hover:bg-surface-soft dark:border-white/15 dark:text-white/60 dark:hover:bg-white/10 cursor-pointer"
                         >
                           <Plus className="h-3.5 w-3.5" />
                         </button>
@@ -193,14 +215,14 @@ export default function Medicines() {
                         <button
                           onClick={() => openEdit(m)}
                           aria-label="Edit medicine"
-                          className="rounded-lg p-2 text-navy-700 hover:bg-navy-50 dark:hover:bg-navy-500/10"
+                          className="rounded-lg p-2 text-navy-700 hover:bg-navy-50 dark:hover:bg-navy-500/10 cursor-pointer"
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
                         <button
                           onClick={() => handleRemove(m.id)}
                           aria-label="Delete medicine"
-                          className="rounded-lg p-2 text-accent-red hover:bg-red-50 dark:hover:bg-red-500/10"
+                          className="rounded-lg p-2 text-accent-red hover:bg-red-50 dark:hover:bg-red-500/10 cursor-pointer"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
