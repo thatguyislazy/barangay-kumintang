@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo, useCallback, type ChangeEvent, type FormEvent } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef, type ChangeEvent, type FormEvent } from "react";
 import {
   Users,
   Megaphone,
   Camera,
+  Upload,
   Loader2,
   ExternalLink,
   CheckCircle2,
@@ -10,6 +11,9 @@ import {
   Clock,
   Phone,
   FileText,
+  Video,
+  VideoOff,
+  RotateCcw,
 } from "lucide-react";
 import { AdminLayout } from "../../components/admin/AdminLayout";
 import { appointmentService } from "../../services/appointmentService";
@@ -46,6 +50,14 @@ export default function ClinicQueue() {
   const [proofPreview, setProofPreview] = useState<string>("");
   const [isSubmittingCompletion, setIsSubmittingCompletion] = useState<boolean>(false);
 
+  // Camera vs File mode
+  const [captureMode, setCaptureMode] = useState<"upload" | "webcam">("upload");
+  const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
   const todayStr = useMemo(() => new Date().toISOString().split("T")[0], []);
 
   const loadAppointments = useCallback(async () => {
@@ -79,7 +91,7 @@ export default function ClinicQueue() {
     };
   }, [loadAppointments]);
 
-  // Naka-sort batay sa 24-hour time (AM muna bago PM)
+  // Naka-sort batay sa 24-hour time
   const todayQueue = useMemo(() => {
     return appointments
       .filter((a) => a.date === todayStr && a.status === "Confirmed")
@@ -92,7 +104,7 @@ export default function ClinicQueue() {
 
   const nowServing = todayQueue[0] || null;
 
-  // Tanging magpapadala ng broadcast sa TV Monitor screen - WALANG AUDIO DITO SA ADMIN
+  // TV Broadcast Trigger
   const triggerTvBroadcast = async (item: Appointment & { queueNumber: number }) => {
     try {
       setIsCalling(item.id);
@@ -123,14 +135,75 @@ export default function ClinicQueue() {
     }
   };
 
+  // Webcam Management
+  const stopWebcam = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    setIsCameraActive(false);
+  }, []);
+
+  const startWebcam = async () => {
+    setCameraError(null);
+    try {
+      stopWebcam();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: "user" },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        videoRef.current.play();
+      }
+      setIsCameraActive(true);
+    } catch (err) {
+      console.error("Webcam access error:", err);
+      setCameraError("Cannot access camera. Please check permissions or attach a webcam.");
+      setIsCameraActive(false);
+    }
+  };
+
+  const handleCaptureFromWebcam = () => {
+    if (!videoRef.current) return;
+
+    const video = videoRef.current;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const file = new File([blob], `webcam-${Date.now()}.jpg`, { type: "image/jpeg" });
+        setProofFile(file);
+        setProofPreview(canvas.toDataURL("image/jpeg"));
+        stopWebcam();
+      }
+    }, "image/jpeg", 0.9);
+  };
+
   const handleOpenCompleteModal = (item: Appointment) => {
     setSelectedAppointment(item);
     setRemarks("");
     setProofFile(null);
     setProofPreview("");
+    setCaptureMode("upload");
+    setCameraError(null);
   };
 
-  const handleProofChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleCloseModal = () => {
+    if (isSubmittingCompletion) return;
+    stopWebcam();
+    setSelectedAppointment(null);
+  };
+
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setProofFile(file);
@@ -160,6 +233,7 @@ export default function ClinicQueue() {
         proofUrl
       );
 
+      stopWebcam();
       setSelectedAppointment(null);
       await loadAppointments();
     } catch (err) {
@@ -393,12 +467,12 @@ export default function ClinicQueue() {
           </div>
         )}
 
-        {/* CONSULTATION COMPLETION MODAL */}
+        {/* CONSULTATION COMPLETION MODAL WITH WEBCAM & ATTACH FILE OPTIONS */}
         {selectedAppointment && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div
               className="absolute inset-0 bg-navy-950/60 backdrop-blur-sm"
-              onClick={() => !isSubmittingCompletion && setSelectedAppointment(null)}
+              onClick={handleCloseModal}
             />
             <div className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl dark:bg-navy-900 border border-navy-100 dark:border-white/10">
               <h2 className="font-display text-xl font-bold text-navy-900 dark:text-white">
@@ -423,42 +497,137 @@ export default function ClinicQueue() {
                   />
                 </div>
 
+                {/* Photo Documentation Section */}
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-ink-600 dark:text-white/70">
-                    Proof Photo of Consultation / Receipt (Optional)
-                  </label>
-                  <div className="mt-1.5 flex items-center gap-3">
-                    <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-dashed border-navy-300 px-4 py-2 text-sm font-medium text-navy-700 hover:bg-navy-50 dark:border-white/20 dark:text-white/80 dark:hover:bg-white/5">
-                      <Camera className="h-4 w-4 text-blue-600" />
-                      Take / Select Photo
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        className="hidden"
-                        onChange={handleProofChange}
-                      />
+                  <div className="flex items-center justify-between pb-1.5">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-ink-600 dark:text-white/70">
+                      Proof Photo of Consultation (Optional)
                     </label>
-                    {proofPreview && (
+                    {/* Mode Toggle Buttons */}
+                    <div className="inline-flex rounded-lg border border-navy-200 bg-navy-50 p-0.5 dark:border-white/10 dark:bg-white/5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          stopWebcam();
+                          setCaptureMode("upload");
+                        }}
+                        className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${
+                          captureMode === "upload"
+                            ? "bg-white text-navy-900 shadow-sm dark:bg-navy-800 dark:text-white"
+                            : "text-ink-500 hover:text-navy-900 dark:text-white/60"
+                        }`}
+                      >
+                        <Upload className="h-3 w-3" />
+                        Attach File
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCaptureMode("webcam");
+                          startWebcam();
+                        }}
+                        className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold transition-all ${
+                          captureMode === "webcam"
+                            ? "bg-white text-navy-900 shadow-sm dark:bg-navy-800 dark:text-white"
+                            : "text-ink-500 hover:text-navy-900 dark:text-white/60"
+                        }`}
+                      >
+                        <Camera className="h-3 w-3" />
+                        Laptop/USB Cam
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Mode 1: File Upload */}
+                  {captureMode === "upload" && (
+                    <div className="mt-2">
+                      <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-navy-300 p-4 text-sm font-medium text-navy-700 hover:bg-navy-50 dark:border-white/20 dark:text-white/80 dark:hover:bg-white/5 transition-colors">
+                        <Upload className="h-4 w-4 text-blue-600" />
+                        <span>Click to attach photo from device</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={handleFileChange}
+                        />
+                      </label>
+                    </div>
+                  )}
+
+                  {/* Mode 2: Live Webcam / USB Cam */}
+                  {captureMode === "webcam" && (
+                    <div className="mt-2 space-y-2">
+                      {cameraError ? (
+                        <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-600 dark:border-red-900/50 dark:bg-red-950/20">
+                          {cameraError}
+                          <button
+                            type="button"
+                            onClick={startWebcam}
+                            className="ml-2 font-bold underline"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      ) : isCameraActive ? (
+                        <div className="relative overflow-hidden rounded-2xl bg-black">
+                          <video
+                            ref={videoRef}
+                            autoPlay
+                            playsInline
+                            className="h-48 w-full object-cover"
+                          />
+                          <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleCaptureFromWebcam}
+                              className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-lg hover:bg-blue-500 cursor-pointer"
+                            >
+                              <Camera className="h-4 w-4" />
+                              Snap Photo
+                            </button>
+                            <button
+                              type="button"
+                              onClick={stopWebcam}
+                              className="inline-flex items-center gap-1 rounded-xl bg-slate-900/80 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-900 cursor-pointer"
+                            >
+                              <VideoOff className="h-3.5 w-3.5" />
+                              Turn Off
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={startWebcam}
+                          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-blue-400 p-4 text-sm font-semibold text-blue-600 hover:bg-blue-50/50 dark:border-blue-500/40 dark:text-blue-400 dark:hover:bg-blue-950/20"
+                        >
+                          <Video className="h-4 w-4" />
+                          Start Webcam / USB Camera Preview
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Photo Preview Result */}
+                  {proofPreview && (
+                    <div className="mt-3 relative rounded-xl overflow-hidden border border-navy-200 dark:border-white/10">
+                      <img
+                        src={proofPreview}
+                        alt="Captured proof"
+                        className="h-36 w-full object-cover"
+                      />
                       <button
                         type="button"
                         onClick={() => {
                           setProofFile(null);
                           setProofPreview("");
+                          if (captureMode === "webcam") startWebcam();
                         }}
-                        className="text-xs text-rose-500 hover:underline cursor-pointer"
+                        className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-lg bg-red-600/90 px-2.5 py-1 text-xs font-bold text-white shadow hover:bg-red-500 cursor-pointer backdrop-blur-sm"
                       >
-                        Remove
+                        <RotateCcw className="h-3 w-3" />
+                        Retake / Remove
                       </button>
-                    )}
-                  </div>
-                  {proofPreview && (
-                    <div className="mt-2 h-28 w-full overflow-hidden rounded-xl border border-navy-100 dark:border-white/10">
-                      <img
-                        src={proofPreview}
-                        alt="Proof"
-                        className="h-full w-full object-cover"
-                      />
                     </div>
                   )}
                 </div>
@@ -467,7 +636,7 @@ export default function ClinicQueue() {
                   <button
                     type="button"
                     disabled={isSubmittingCompletion}
-                    onClick={() => setSelectedAppointment(null)}
+                    onClick={handleCloseModal}
                     className="rounded-xl px-4 py-2.5 text-sm font-semibold text-ink-600 hover:bg-surface-soft dark:text-white/70 dark:hover:bg-white/10 disabled:opacity-50 cursor-pointer"
                   >
                     Cancel
