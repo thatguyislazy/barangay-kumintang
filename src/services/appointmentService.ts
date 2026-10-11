@@ -139,14 +139,6 @@ export const appointmentService = {
       .from(bucketName)
       .upload(filePath, file, { cacheControl: "3600", upsert: true });
 
-    if (uploadError && uploadError.message.toLowerCase().includes("bucket not found")) {
-      bucketName = "appointments";
-      const retry = await supabase.storage
-        .from(bucketName)
-        .upload(filePath, file, { cacheControl: "3600", upsert: true });
-      uploadError = retry.error;
-    }
-
     if (uploadError) {
       console.error("uploadIdPhoto error:", uploadError.message);
       throw uploadError;
@@ -166,22 +158,31 @@ export const appointmentService = {
     const filePath = `completions/${fileName}`;
     const bucketName = "appointment-ids";
 
+    const blobToUpload =
+      fileOrBlob instanceof Blob
+        ? fileOrBlob
+        : new Blob([fileOrBlob], { type: "image/jpeg" });
+
     const { error: uploadError } = await supabase.storage
       .from(bucketName)
-      .upload(filePath, fileOrBlob, {
+      .upload(filePath, blobToUpload, {
         contentType: "image/jpeg",
         cacheControl: "3600",
         upsert: true,
       });
 
     if (uploadError) {
-      console.error("Storage upload failed:", uploadError);
-      throw uploadError;
+      console.error("Storage upload failed error detail:", uploadError);
+      throw new Error(`Storage upload error: ${uploadError.message}`);
     }
 
     const { data: publicUrlData } = supabase.storage
       .from(bucketName)
       .getPublicUrl(filePath);
+
+    if (!publicUrlData?.publicUrl) {
+      throw new Error("Failed to get public URL for completion photo.");
+    }
 
     return publicUrlData.publicUrl;
   },

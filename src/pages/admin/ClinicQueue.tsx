@@ -44,7 +44,7 @@ export default function ClinicQueue() {
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [isCalling, setIsCalling] = useState<string | null>(null);
 
-  // Completion Form State (Tumatanggap ng native File o Blob)
+  // Completion Form State
   const [remarks, setRemarks] = useState<string>("");
   const [proofFile, setProofFile] = useState<File | Blob | null>(null);
   const [proofPreview, setProofPreview] = useState<string>("");
@@ -198,8 +198,8 @@ export default function ClinicQueue() {
     }
   }, [isCameraActive]);
 
-  // Gumagawa ng binary File object mula sa canvas frame
-  const handleCaptureFromWebcam = () => {
+  // Kumuha ng binary Blob gamit ang fetch API mula sa canvas dataUrl
+  const handleCaptureFromWebcam = async () => {
     if (!videoRef.current) return;
 
     const video = videoRef.current;
@@ -216,24 +216,12 @@ export default function ClinicQueue() {
     setProofPreview(dataUrl);
 
     try {
-      const arr = dataUrl.split(",");
-      const mime = arr[0].match(/:(.*?);/)?.[1] || "image/jpeg";
-      const bstr = atob(arr[1]);
-      let n = bstr.length;
-      const u8arr = new Uint8Array(n);
-      while (n--) {
-        u8arr[n] = bstr.charCodeAt(n);
-      }
-      
-      const realFile = new File([u8arr], `webcam_${Date.now()}.jpg`, {
-        type: mime,
-        lastModified: Date.now(),
-      });
-
-      setProofFile(realFile);
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      setProofFile(blob);
       stopWebcam();
     } catch (err) {
-      console.error("Failed to convert webcam snap to File:", err);
+      console.error("Failed to convert webcam snap to Blob:", err);
     }
   };
 
@@ -287,7 +275,7 @@ export default function ClinicQueue() {
       await loadAppointments();
     } catch (err: any) {
       console.error("Error completing consultation:", err);
-      alert(`Nagkaroon ng problema sa pag-save: ${err?.message || "Pakisubukang muli."}`);
+      alert(`Hindi nai-save: ${err?.message || "Pakisubukang muli."}`);
     } finally {
       setIsSubmittingCompletion(false);
     }
