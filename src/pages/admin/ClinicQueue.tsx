@@ -14,9 +14,6 @@ import {
   Video,
   VideoOff,
   RotateCcw,
-  History,
-  MessageSquare,
-  Image as ImageIcon,
 } from "lucide-react";
 import { AdminLayout } from "../../components/admin/AdminLayout";
 import { appointmentService } from "../../services/appointmentService";
@@ -46,7 +43,6 @@ export default function ClinicQueue() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [isCalling, setIsCalling] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"queue" | "history">("queue");
 
   // Completion Form State
   const [remarks, setRemarks] = useState<string>("");
@@ -97,7 +93,7 @@ export default function ClinicQueue() {
     };
   }, [loadAppointments]);
 
-  // Live Queue (Confirmed para sa araw na ito, naka-sort AM -> PM)
+  // Live Queue (Confirmed para sa araw na ito, naka-sort 24-hr AM bago PM)
   const todayQueue = useMemo(() => {
     return appointments
       .filter((a) => a.date === todayStr && a.status === "Confirmed")
@@ -108,16 +104,9 @@ export default function ClinicQueue() {
       }));
   }, [appointments, todayStr]);
 
-  // Served / Completed History para sa araw na ito
-  const completedToday = useMemo(() => {
-    return appointments
-      .filter((a) => a.date === todayStr && a.status === "Completed")
-      .sort((a, b) => parseTimeToMinutes(b.time) - parseTimeToMinutes(a.time));
-  }, [appointments, todayStr]);
-
   const nowServing = todayQueue[0] || null;
 
-  // TV Broadcast Trigger (Hindi tutunog sa admin)
+  // TV Broadcast Trigger (Sa TV monitor lamang tutunog)
   const triggerTvBroadcast = async (item: Appointment & { queueNumber: number }) => {
     try {
       setIsCalling(item.id);
@@ -148,7 +137,6 @@ export default function ClinicQueue() {
     }
   };
 
-  // Enumerate Connected Cameras (Laptop Built-in vs USB Camera)
   const loadVideoDevices = async () => {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -298,17 +286,17 @@ export default function ClinicQueue() {
   return (
     <AdminLayout
       title="Clinic Queue & Triage Desk"
-      description="Manage today's consultation line, send announcements to TV monitor, and review completed medical history."
+      description="Manage today's consultation line, send announcements to TV monitor, and verify patient records."
     >
       <div className="space-y-6">
-        {/* Top Header & Global Actions */}
+        {/* Top Control Bar */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="font-display text-2xl font-bold text-navy-900 dark:text-white">
               Clinic Live Queue Triage
             </h1>
             <p className="text-sm text-ink-500 dark:text-white/60">
-              Date: <strong className="text-navy-800 dark:text-blue-300">{todayStr}</strong> • {todayQueue.length} waiting • {completedToday.length} served
+              Active consultations for today ({todayStr}) • {todayQueue.length} patient(s) waiting
             </p>
           </div>
 
@@ -321,7 +309,7 @@ export default function ClinicQueue() {
               Refresh
             </button>
 
-            {nowServing && activeTab === "queue" && (
+            {nowServing && (
               <button
                 onClick={() => triggerTvBroadcast(nowServing)}
                 disabled={isCalling === nowServing.id}
@@ -338,298 +326,178 @@ export default function ClinicQueue() {
           </div>
         </div>
 
-        {/* TAB SWITCHER: LIVE QUEUE VS COMPLETED HISTORY */}
-        <div className="flex items-center gap-2 border-b border-navy-100 pb-2 dark:border-white/10">
-          <button
-            onClick={() => setActiveTab("queue")}
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "queue"
-                ? "bg-blue-600 text-white shadow-md"
-                : "bg-navy-50 text-ink-600 hover:bg-navy-100 dark:bg-white/5 dark:text-white/70"
-            }`}
-          >
-            <Users className="h-3.5 w-3.5" />
-            Live Waiting Queue ({todayQueue.length})
-          </button>
-          <button
-            onClick={() => setActiveTab("history")}
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "history"
-                ? "bg-emerald-600 text-white shadow-md"
-                : "bg-navy-50 text-ink-600 hover:bg-navy-100 dark:bg-white/5 dark:text-white/70"
-            }`}
-          >
-            <History className="h-3.5 w-3.5" />
-            Served & Completed History ({completedToday.length})
-          </button>
-        </div>
-
-        {/* TAB 1: LIVE QUEUE CONTENT */}
-        {activeTab === "queue" && (
-          <div className="space-y-6">
-            {/* NOW SERVING SUMMARY BOX */}
-            {nowServing && (
-              <div className="relative overflow-hidden rounded-3xl border-2 border-blue-500/40 bg-gradient-to-r from-blue-900/10 via-white to-blue-50/50 p-6 shadow-xl dark:border-blue-500/30 dark:from-navy-900 dark:via-navy-900/90 dark:to-blue-950/40">
-                <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
-                  <div className="space-y-2">
-                    <div className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-3.5 py-1 text-xs font-extrabold uppercase tracking-widest text-white shadow-sm">
-                      <span className="h-2 w-2 rounded-full bg-emerald-300 animate-ping" />
-                      Currently Serving at Counter
-                    </div>
-                    <div className="flex items-baseline gap-3">
-                      <span className="font-mono text-4xl font-black text-blue-700 dark:text-blue-400">
-                        #{nowServing.queueNumber}
-                      </span>
-                      <h2 className="text-2xl font-black text-navy-900 dark:text-white">
-                        {nowServing.patientName}
-                      </h2>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-ink-600 dark:text-white/70">
-                      <span className="flex items-center gap-1.5">
-                        <Clock className="h-3.5 w-3.5 text-blue-600" />
-                        Appointed: {nowServing.time}
-                      </span>
-                      <span>•</span>
-                      <span className="rounded-md bg-blue-100 px-2 py-0.5 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
-                        {nowServing.reason}
-                      </span>
-                      <span>•</span>
-                      <span>Ref: {nowServing.id}</span>
-                      <span>•</span>
-                      <span>Barangay: {nowServing.barangay}</span>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-3">
-                    <button
-                      onClick={() => triggerTvBroadcast(nowServing)}
-                      disabled={isCalling === nowServing.id}
-                      className="inline-flex items-center gap-2 rounded-xl border border-navy-300 bg-white px-4 py-2.5 text-xs font-bold text-navy-800 shadow-soft hover:bg-navy-50 dark:border-white/20 dark:bg-navy-800 dark:text-white cursor-pointer active:scale-95"
-                    >
-                      <Megaphone className="h-4 w-4 text-blue-600" />
-                      Broadcast TV Call
-                    </button>
-                    <button
-                      onClick={() => handleOpenCompleteModal(nowServing)}
-                      className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-bold text-white shadow-lift hover:bg-emerald-500 cursor-pointer active:scale-95"
-                    >
-                      <CheckCircle2 className="h-4 w-4" />
-                      Mark as Served / Finished
-                    </button>
-                  </div>
+        {/* NOW SERVING SUMMARY BOX */}
+        {nowServing && (
+          <div className="relative overflow-hidden rounded-3xl border-2 border-blue-500/40 bg-gradient-to-r from-blue-900/10 via-white to-blue-50/50 p-6 shadow-xl dark:border-blue-500/30 dark:from-navy-900 dark:via-navy-900/90 dark:to-blue-950/40">
+            <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-2">
+                <div className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-3.5 py-1 text-xs font-extrabold uppercase tracking-widest text-white shadow-sm">
+                  <span className="h-2 w-2 rounded-full bg-emerald-300 animate-ping" />
+                  Currently Serving at Counter
+                </div>
+                <div className="flex items-baseline gap-3">
+                  <span className="font-mono text-4xl font-black text-blue-700 dark:text-blue-400">
+                    #{nowServing.queueNumber}
+                  </span>
+                  <h2 className="text-2xl font-black text-navy-900 dark:text-white">
+                    {nowServing.patientName}
+                  </h2>
+                </div>
+                <div className="flex flex-wrap items-center gap-4 text-xs font-semibold text-ink-600 dark:text-white/70">
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-blue-600" />
+                    Appointed: {nowServing.time}
+                  </span>
+                  <span>•</span>
+                  <span className="rounded-md bg-blue-100 px-2 py-0.5 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300">
+                    {nowServing.reason}
+                  </span>
+                  <span>•</span>
+                  <span>Ref: {nowServing.id}</span>
+                  <span>•</span>
+                  <span>Barangay: {nowServing.barangay}</span>
                 </div>
               </div>
-            )}
 
-            {/* QUEUE TABLE */}
-            {isLoading ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-2xl border border-navy-100 bg-white/50 dark:border-white/10 dark:bg-navy-900/40">
-                <Loader2 className="h-7 w-7 animate-spin text-navy-800 dark:text-white" />
-                <span className="text-xs font-medium text-ink-500 dark:text-white/60">
-                  Loading confirmed patient tickets...
-                </span>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={() => triggerTvBroadcast(nowServing)}
+                  disabled={isCalling === nowServing.id}
+                  className="inline-flex items-center gap-2 rounded-xl border border-navy-300 bg-white px-4 py-2.5 text-xs font-bold text-navy-800 shadow-soft hover:bg-navy-50 dark:border-white/20 dark:bg-navy-800 dark:text-white cursor-pointer active:scale-95"
+                >
+                  <Megaphone className="h-4 w-4 text-blue-600" />
+                  Broadcast TV Call
+                </button>
+                <button
+                  onClick={() => handleOpenCompleteModal(nowServing)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-bold text-white shadow-lift hover:bg-emerald-500 cursor-pointer active:scale-95"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  Mark as Served / Finished
+                </button>
               </div>
-            ) : (
-              <div className="overflow-hidden rounded-2xl border border-navy-100 bg-white shadow-sm dark:border-white/10 dark:bg-navy-900">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-navy-100 bg-navy-50/50 text-xs font-bold uppercase tracking-wider text-ink-500 dark:border-white/10 dark:bg-white/5 dark:text-white/60">
-                    <tr>
-                      <th className="px-6 py-4">Queue #</th>
-                      <th className="px-6 py-4">Patient Information</th>
-                      <th className="px-6 py-4">Medical Service</th>
-                      <th className="px-6 py-4">Schedule Time</th>
-                      <th className="px-6 py-4">PhilSys / ID Document</th>
-                      <th className="px-6 py-4 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-navy-100 dark:divide-white/10">
-                    {todayQueue.map((item) => (
-                      <tr
-                        key={item.id}
-                        className={`transition-colors ${
-                          nowServing?.id === item.id
-                            ? "bg-blue-50/50 dark:bg-blue-950/20 font-medium"
-                            : "hover:bg-navy-50/40 dark:hover:bg-white/5"
-                        }`}
-                      >
-                        <td className="px-6 py-4">
-                          <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-navy-900 font-mono text-xs font-black text-white dark:bg-blue-600 shadow-sm">
-                            #{item.queueNumber}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="font-bold text-navy-900 dark:text-white">
-                            {item.patientName}
-                          </div>
-                          <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-500 dark:text-white/50">
-                            <span className="font-mono font-semibold text-blue-600 dark:text-blue-400">
-                              {item.id}
-                            </span>
-                            <span>•</span>
-                            <span className="flex items-center gap-1">
-                              <Phone className="h-3 w-3" />
-                              {item.contactNumber}
-                            </span>
-                            <span>•</span>
-                            <span>{item.barangay}</span>
-                          </div>
-                          {item.notes && (
-                            <p className="mt-1 text-xs italic text-ink-400 dark:text-white/40">
-                              Note: {item.notes}
-                            </p>
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="inline-flex items-center rounded-lg bg-navy-100/80 px-2.5 py-1 text-xs font-bold text-navy-800 dark:bg-white/10 dark:text-white">
-                            {item.reason}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-black text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300">
-                            <Clock className="h-3.5 w-3.5 text-amber-600" />
-                            {item.time}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          {item.idPhotoUrl ? (
-                            <a
-                              href={item.idPhotoUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-navy-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 dark:border-white/10 dark:bg-navy-800 dark:text-blue-400"
-                            >
-                              <FileText className="h-3.5 w-3.5" />
-                              Verify ID
-                              <ExternalLink className="h-3 w-3" />
-                            </a>
-                          ) : (
-                            <span className="text-xs text-ink-400 dark:text-white/40">
-                              No ID uploaded
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => triggerTvBroadcast(item)}
-                              disabled={isCalling === item.id}
-                              className="inline-flex items-center gap-1.5 rounded-xl border border-navy-200 bg-white px-3 py-1.5 text-xs font-bold text-navy-800 shadow-soft hover:bg-navy-50 dark:border-white/10 dark:bg-navy-800 dark:text-white cursor-pointer active:scale-95"
-                              title="Broadcast Audio on TV Display"
-                            >
-                              <Megaphone className="h-3.5 w-3.5 text-blue-600" />
-                              Broadcast TV
-                            </button>
-                            <button
-                              onClick={() => handleOpenCompleteModal(item)}
-                              className="rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-soft hover:bg-emerald-500 cursor-pointer active:scale-95"
-                            >
-                              Served
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-
-                    {todayQueue.length === 0 && (
-                      <tr>
-                        <td
-                          colSpan={6}
-                          className="px-6 py-12 text-center text-ink-500 dark:text-white/40"
-                        >
-                          <Users className="mx-auto h-8 w-8 stroke-1 text-navy-400" />
-                          <p className="mt-2 font-medium">No confirmed patients queued for today.</p>
-                          <p className="text-xs">Appointments confirmed in the admin booking tab will appear here.</p>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            </div>
           </div>
         )}
 
-        {/* TAB 2: SERVED & COMPLETED HISTORY (PAST REMARKS & PROOF PHOTOS) */}
-        {activeTab === "history" && (
+        {/* FULL PATIENT QUEUE TABLE */}
+        {isLoading ? (
+          <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-2xl border border-navy-100 bg-white/50 dark:border-white/10 dark:bg-navy-900/40">
+            <Loader2 className="h-7 w-7 animate-spin text-navy-800 dark:text-white" />
+            <span className="text-xs font-medium text-ink-500 dark:text-white/60">
+              Loading confirmed patient tickets...
+            </span>
+          </div>
+        ) : (
           <div className="overflow-hidden rounded-2xl border border-navy-100 bg-white shadow-sm dark:border-white/10 dark:bg-navy-900">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-navy-100 bg-emerald-50/50 text-xs font-bold uppercase tracking-wider text-emerald-800 dark:border-white/10 dark:bg-emerald-950/20 dark:text-emerald-300">
+              <thead className="border-b border-navy-100 bg-navy-50/50 text-xs font-bold uppercase tracking-wider text-ink-500 dark:border-white/10 dark:bg-white/5 dark:text-white/60">
                 <tr>
-                  <th className="px-6 py-4">Patient & Ticket</th>
+                  <th className="px-6 py-4">Queue #</th>
+                  <th className="px-6 py-4">Patient Information</th>
                   <th className="px-6 py-4">Medical Service</th>
-                  <th className="px-6 py-4">Schedule</th>
-                  <th className="px-6 py-4">Doctor / Clinical Remarks</th>
-                  <th className="px-6 py-4 text-right">Proof Documentation</th>
+                  <th className="px-6 py-4">Schedule Time</th>
+                  <th className="px-6 py-4">PhilSys / ID Document</th>
+                  <th className="px-6 py-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-navy-100 dark:divide-white/10">
-                {completedToday.map((item) => (
-                  <tr key={item.id} className="hover:bg-navy-50/30 dark:hover:bg-white/5 transition-colors">
+                {todayQueue.map((item) => (
+                  <tr
+                    key={item.id}
+                    className={`transition-colors ${
+                      nowServing?.id === item.id
+                        ? "bg-blue-50/50 dark:bg-blue-950/20 font-medium"
+                        : "hover:bg-navy-50/40 dark:hover:bg-white/5"
+                    }`}
+                  >
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
-                        <div>
-                          <div className="font-bold text-navy-900 dark:text-white">
-                            {item.patientName}
-                          </div>
-                          <div className="text-xs font-mono text-ink-400 dark:text-white/40">
-                            {item.id} • {item.barangay}
-                          </div>
-                        </div>
-                      </div>
+                      <span className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-navy-900 font-mono text-xs font-black text-white dark:bg-blue-600 shadow-sm">
+                        #{item.queueNumber}
+                      </span>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="inline-flex rounded-lg bg-navy-100/70 px-2.5 py-1 text-xs font-bold text-navy-800 dark:bg-white/10 dark:text-white">
+                      <div className="font-bold text-navy-900 dark:text-white">
+                        {item.patientName}
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-2 text-xs text-ink-500 dark:text-white/50">
+                        <span className="font-mono font-semibold text-blue-600 dark:text-blue-400">
+                          {item.id}
+                        </span>
+                        <span>•</span>
+                        <span className="flex items-center gap-1">
+                          <Phone className="h-3 w-3" />
+                          {item.contactNumber}
+                        </span>
+                        <span>•</span>
+                        <span>{item.barangay}</span>
+                      </div>
+                      {item.notes && (
+                        <p className="mt-1 text-xs italic text-ink-400 dark:text-white/40">
+                          Note: {item.notes}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className="inline-flex items-center rounded-lg bg-navy-100/80 px-2.5 py-1 text-xs font-bold text-navy-800 dark:bg-white/10 dark:text-white">
                         {item.reason}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-xs font-semibold text-ink-600 dark:text-white/70">
-                      {item.time}
+                    <td className="px-6 py-4">
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-black text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300">
+                        <Clock className="h-3.5 w-3.5 text-amber-600" />
+                        {item.time}
+                      </span>
                     </td>
                     <td className="px-6 py-4">
-                      {item.remarks ? (
-                        <div className="flex items-start gap-2 max-w-md">
-                          <MessageSquare className="h-3.5 w-3.5 text-blue-500 shrink-0 mt-0.5" />
-                          <p className="text-xs font-medium text-navy-900 dark:text-slate-200 bg-navy-50/80 dark:bg-white/5 p-2 rounded-xl">
-                            {item.remarks}
-                          </p>
-                        </div>
-                      ) : (
-                        <span className="text-xs italic text-ink-400 dark:text-white/40">
-                          No written remarks
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      {item.completionPhotoUrl ? (
+                      {item.idPhotoUrl ? (
                         <a
-                          href={item.completionPhotoUrl}
+                          href={item.idPhotoUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800/40 dark:bg-emerald-950/40 dark:text-emerald-300"
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-navy-200 bg-white px-2.5 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 dark:border-white/10 dark:bg-navy-800 dark:text-blue-400"
                         >
-                          <ImageIcon className="h-3.5 w-3.5" />
-                          View Proof Photo
+                          <FileText className="h-3.5 w-3.5" />
+                          Verify ID
                           <ExternalLink className="h-3 w-3" />
                         </a>
                       ) : (
                         <span className="text-xs text-ink-400 dark:text-white/40">
-                          No photo captured
+                          No ID uploaded
                         </span>
                       )}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => triggerTvBroadcast(item)}
+                          disabled={isCalling === item.id}
+                          className="inline-flex items-center gap-1.5 rounded-xl border border-navy-200 bg-white px-3 py-1.5 text-xs font-bold text-navy-800 shadow-soft hover:bg-navy-50 dark:border-white/10 dark:bg-navy-800 dark:text-white cursor-pointer active:scale-95"
+                          title="Broadcast Audio on TV Display"
+                        >
+                          <Megaphone className="h-3.5 w-3.5 text-blue-600" />
+                          Broadcast TV
+                        </button>
+                        <button
+                          onClick={() => handleOpenCompleteModal(item)}
+                          className="rounded-xl bg-emerald-600 px-3.5 py-1.5 text-xs font-bold text-white shadow-soft hover:bg-emerald-500 cursor-pointer active:scale-95"
+                        >
+                          Served
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
 
-                {completedToday.length === 0 && (
+                {todayQueue.length === 0 && (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={6}
                       className="px-6 py-12 text-center text-ink-500 dark:text-white/40"
                     >
-                      <History className="mx-auto h-8 w-8 stroke-1 text-navy-400" />
-                      <p className="mt-2 font-medium">No consultations completed yet for today.</p>
-                      <p className="text-xs">Once you click &quot;Served&quot; on a patient, their records and remarks will appear here.</p>
+                      <Users className="mx-auto h-8 w-8 stroke-1 text-navy-400" />
+                      <p className="mt-2 font-medium">No confirmed patients queued for today.</p>
+                      <p className="text-xs">Appointments confirmed in the admin booking tab will appear here.</p>
                     </td>
                   </tr>
                 )}
