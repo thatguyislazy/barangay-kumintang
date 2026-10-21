@@ -18,6 +18,8 @@ import {
   Pill,
   Plus,
   Trash2,
+  Calendar,
+  Activity,
 } from "lucide-react";
 import { AdminLayout } from "../../components/admin/AdminLayout";
 import { appointmentService, type MedicineItem, type DispenseItem } from "../../services/appointmentService";
@@ -423,20 +425,30 @@ export default function ClinicQueue() {
       description="Manage today's consultation line, send announcements to TV monitor, and verify patient records."
     >
       <div className="space-y-6">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="font-display text-2xl font-bold text-navy-900 dark:text-white">
-              Clinic Live Queue Triage
-            </h1>
-            <p className="text-sm text-ink-500 dark:text-white/60">
-              Active consultations for today ({todayStr}) • {todayQueue.length} patient(s) waiting
-            </p>
+        {/* Streamlined Top Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold ${
+                todayQueue.length > 0
+                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+                  : "bg-navy-100/70 text-navy-700 dark:bg-white/10 dark:text-white/70"
+              }`}
+            >
+              <Activity className="h-3.5 w-3.5" />
+              {todayQueue.length > 0 ? `${todayQueue.length} Waiting` : "Queue Idle"}
+            </span>
+
+            <span className="inline-flex items-center gap-1 rounded-full border border-navy-200/80 bg-white px-3 py-1 text-xs font-semibold text-navy-800 dark:border-white/10 dark:bg-navy-900 dark:text-white/80">
+              <Calendar className="h-3.5 w-3.5 text-blue-500" />
+              {todayStr}
+            </span>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <button
               onClick={loadAppointments}
-              className="inline-flex items-center gap-2 rounded-xl border border-navy-200 bg-white px-4 py-2.5 text-xs font-bold text-navy-800 shadow-soft hover:bg-navy-50 dark:border-white/10 dark:bg-navy-900 dark:text-white cursor-pointer"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-navy-200 bg-white px-3.5 py-2 text-xs font-bold text-navy-800 shadow-soft hover:bg-navy-50 dark:border-white/10 dark:bg-navy-900 dark:text-white cursor-pointer active:scale-95 transition-all"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
               Refresh
@@ -446,19 +458,20 @@ export default function ClinicQueue() {
               <button
                 onClick={() => triggerTvBroadcast(nowServing)}
                 disabled={isCalling === nowServing.id}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-lift hover:bg-blue-500 active:scale-95 cursor-pointer disabled:opacity-50 transition-all"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold text-white shadow-lift hover:bg-blue-500 active:scale-95 cursor-pointer disabled:opacity-50 transition-all"
               >
                 {isCalling === nowServing.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <Megaphone className="h-4 w-4" />
+                  <Megaphone className="h-3.5 w-3.5" />
                 )}
-                Call Next on TV (#{nowServing.queueNumber} - {nowServing.patientName})
+                Call Next (#{nowServing.queueNumber})
               </button>
             )}
           </div>
         </div>
 
+        {/* NOW SERVING CARD */}
         {nowServing && (
           <div className="relative overflow-hidden rounded-3xl border-2 border-blue-500/40 bg-gradient-to-r from-blue-900/10 via-white to-blue-50/50 p-6 shadow-xl dark:border-blue-500/30 dark:from-navy-900 dark:via-navy-900/90 dark:to-blue-950/40">
             <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
@@ -512,6 +525,7 @@ export default function ClinicQueue() {
           </div>
         )}
 
+        {/* FULL PATIENT QUEUE TABLE */}
         {isLoading ? (
           <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-2xl border border-navy-100 bg-white/50 dark:border-white/10 dark:bg-navy-900/40">
             <Loader2 className="h-7 w-7 animate-spin text-navy-800 dark:text-white" />
