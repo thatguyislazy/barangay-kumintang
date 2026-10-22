@@ -40,12 +40,27 @@ export const CLINIC_20_SLOTS: string[] = [
   "03:20 PM",
 ];
 
+function formatFullName(first?: string, middle?: string, last?: string, fallback?: string): string {
+  if (last && first) {
+    const m = middle?.trim() ? ` ${middle.trim().charAt(0)}.` : "";
+    return `${last.trim()}, ${first.trim()}${m}`;
+  }
+  return fallback || "Unnamed Patient";
+}
+
 function mapRowToAppointment(row: any): Appointment {
+  const constructedName = formatFullName(
+    row.first_name,
+    row.middle_name,
+    row.last_name,
+    row.patient_name || row.patientName
+  );
+
   return {
     id: row.id,
-    patientName: row.patient_name || row.patientName,
+    patientName: constructedName,
     contactNumber: row.contact_number || row.contactNumber,
-    barangay: row.barangay || "Kumintang Ilaya",
+    barangay: row.purok ? `${row.purok}, ${row.barangay || "Kumintang Ilaya"}` : (row.barangay || "Kumintang Ilaya"),
     date: row.date,
     time: row.time,
     reason: row.reason,
@@ -77,25 +92,33 @@ export const appointmentService = {
   },
 
   async create(payload: {
-    patientName: string;
+    firstName: string;
+    lastName: string;
+    middleName?: string;
     contactNumber: string;
     barangay: string;
+    purok?: string;
     reason: string;
     notes?: string;
     idPhotoUrl?: string;
   }): Promise<Appointment> {
     const refId = `APT-${Math.floor(1000 + Math.random() * 9000)}`;
+    const fullName = formatFullName(payload.firstName, payload.middleName, payload.lastName);
 
     const { data, error } = await supabase
       .from("appointments")
       .insert([
         {
           id: refId,
-          patient_name: payload.patientName,
-          contact_number: payload.contactNumber,
-          barangay: payload.barangay,
+          first_name: payload.firstName.trim(),
+          last_name: payload.lastName.trim(),
+          middle_name: payload.middleName?.trim() || null,
+          patient_name: fullName,
+          contact_number: payload.contactNumber.trim(),
+          barangay: payload.barangay.trim(),
+          purok: payload.purok?.trim() || null,
           reason: payload.reason,
-          notes: payload.notes || null,
+          notes: payload.notes?.trim() || null,
           id_photo_url: payload.idPhotoUrl || null,
           status: "Pending",
         },
@@ -148,8 +171,8 @@ export const appointmentService = {
       .substring(2, 9)}.${fileExt}`;
     const filePath = `ids/${fileName}`;
 
-    let bucketName = "appointment-ids";
-    let { error: uploadError } = await supabase.storage
+    const bucketName = "appointment-ids";
+    const { error: uploadError } = await supabase.storage
       .from(bucketName)
       .upload(filePath, file, { cacheControl: "3600", upsert: true });
 
@@ -224,8 +247,6 @@ export const appointmentService = {
     return mapRowToAppointment(data);
   },
 
-  // --- MEDICINE INVENTORY OPERATIONS ---
-
   async listMedicines(): Promise<MedicineItem[]> {
     const { data, error } = await supabase
       .from("medicines")
@@ -237,7 +258,13 @@ export const appointmentService = {
       return [];
     }
 
-    return data || [];
+    return (data || []).map((row: any) => ({
+      id: String(row.id),
+      name: row.name || "Unnamed Medicine",
+      dosage: row.dosage || row.category || "Standard",
+      stock_quantity: Number(row.quantity ?? row.stock_quantity ?? row.stock ?? 0),
+      unit: row.unit || "pcs",
+    }));
   },
 
   async deductMedicineStock(medicineId: string, quantity: number): Promise<void> {
@@ -247,8 +274,29 @@ export const appointmentService = {
     });
 
     if (error) {
-      console.error("appointmentService.deductMedicineStock error:", error.message);
-      throw new Error(error.message);
+      console.warn(`RPC deduction failed for ${medicineId}, running direct fallback...`, error.message);
+      
+      const { data: currentMed, error: fetchErr } = await supabase
+        .from("medicines")
+        .select("*")
+        .eq("id", medicineId)
+        .single();
+
+      if (fetchErr || !currentMed) {
+        throw new Error(error.message);
+      }
+
+      const currentStock = Number(currentMed.quantity ?? currentMed.stock_quantity ?? 0);
+      const nextStock = Math.max(0, currentStock - Number(quantity));
+      const nextStatus = nextStock <= 0 ? "Out of Stock" : nextStock <= 20 ? "Low Stock" : "In Stock";
+
+      await supabase
+        .from("medicines")
+        .update({
+          quantity: nextStock,
+          status: nextStatus,
+        })
+        .eq("id", medicineId);
     }
   },
 

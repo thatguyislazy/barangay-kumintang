@@ -1,5 +1,5 @@
 import { supabase } from "../supabase/supabase";
-import type { Medicine, MedicineFormData, MedicineRow, StockStatus } from "../types/medicine";
+import type { Medicine, MedicineFormData, StockStatus } from "../types/medicine";
 
 export function computeStatus(quantity: number, expirationDate: string): StockStatus {
   const daysToExpire =
@@ -10,13 +10,13 @@ export function computeStatus(quantity: number, expirationDate: string): StockSt
   return "In Stock";
 }
 
-function mapRowToMedicine(row: MedicineRow): Medicine {
+function mapRowToMedicine(row: any): Medicine {
   return {
-    id: row.id,
+    id: String(row.id),
     name: row.name,
     category: row.category,
-    quantity: row.quantity,
-    unit: row.unit,
+    quantity: Number(row.quantity ?? row.stock_quantity ?? 0),
+    unit: row.unit || "pcs",
     expirationDate: row.expiration_date,
     status: row.status,
   };
@@ -34,7 +34,7 @@ export const medicineService = {
       throw error;
     }
 
-    return (data as MedicineRow[]).map(mapRowToMedicine);
+    return (data || []).map(mapRowToMedicine);
   },
 
   async create(data: MedicineFormData): Promise<Medicine> {
@@ -62,7 +62,7 @@ export const medicineService = {
       throw error;
     }
 
-    return mapRowToMedicine(inserted as MedicineRow);
+    return mapRowToMedicine(inserted);
   },
 
   async update(id: string, data: Partial<MedicineFormData>): Promise<Medicine> {
@@ -76,11 +76,12 @@ export const medicineService = {
       throw new Error("Medicine not found");
     }
 
-    const nextQuantity = data.quantity !== undefined ? data.quantity : current.quantity;
+    const currentQty = Number(current.quantity ?? current.stock_quantity ?? 0);
+    const nextQuantity = data.quantity !== undefined ? data.quantity : currentQty;
     const nextExpDate = data.expirationDate !== undefined ? data.expirationDate : current.expiration_date;
     const nextStatus = computeStatus(nextQuantity, nextExpDate);
 
-    const payload: Partial<MedicineRow> = {
+    const payload: Record<string, any> = {
       ...(data.name !== undefined && { name: data.name }),
       ...(data.category !== undefined && { category: data.category }),
       ...(data.quantity !== undefined && { quantity: data.quantity }),
@@ -101,7 +102,7 @@ export const medicineService = {
       throw error;
     }
 
-    return mapRowToMedicine(updated as MedicineRow);
+    return mapRowToMedicine(updated);
   },
 
   async remove(id: string): Promise<void> {
@@ -127,7 +128,8 @@ export const medicineService = {
       throw new Error("Medicine not found");
     }
 
-    const nextQuantity = Math.max(0, current.quantity + delta);
+    const currentQty = Number(current.quantity ?? current.stock_quantity ?? 0);
+    const nextQuantity = Math.max(0, currentQty + delta);
     const nextStatus = computeStatus(nextQuantity, current.expiration_date);
 
     const { data: updated, error } = await supabase
@@ -142,6 +144,6 @@ export const medicineService = {
       throw error;
     }
 
-    return mapRowToMedicine(updated as MedicineRow);
+    return mapRowToMedicine(updated);
   },
 };

@@ -126,6 +126,13 @@ export default function ClinicQueue() {
           loadAppointments();
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "medicines" },
+        () => {
+          loadMedicines();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -133,6 +140,8 @@ export default function ClinicQueue() {
     };
   }, [loadAppointments, loadMedicines]);
 
+  // Dynamic Sequential Queue: Only unserved "Confirmed" patients are included.
+  // When Patient #1 is marked as "Completed", they drop out and Patient #2 automatically assumes #1.
   const todayQueue = useMemo(() => {
     return appointments
       .filter((a) => a.date === todayStr && a.status === "Confirmed")
@@ -407,6 +416,27 @@ export default function ClinicQueue() {
         validDispenseList
       );
 
+      // Optimistic Local State Update: Immediately marks patient Completed so the UI shifts #2 to #1 instantaneously
+      setAppointments((prev) =>
+        prev.map((apt) =>
+          apt.id === selectedAppointment.id ? { ...apt, status: "Completed" } : apt
+        )
+      );
+
+      // Optimistically deduct stock quantities from local medicines list
+      if (validDispenseList.length > 0) {
+        const deductionMap = new Map(validDispenseList.map((d) => [d.medicineId, d.quantity]));
+        setMedicinesList((prev) =>
+          prev.map((m) => {
+            if (deductionMap.has(m.id)) {
+              const deducted = deductionMap.get(m.id)!;
+              return { ...m, stock_quantity: Math.max(0, m.stock_quantity - deducted) };
+            }
+            return m;
+          })
+        );
+      }
+
       stopWebcam();
       setSelectedAppointment(null);
       await loadAppointments();
@@ -447,7 +477,10 @@ export default function ClinicQueue() {
 
           <div className="flex items-center gap-2">
             <button
-              onClick={loadAppointments}
+              onClick={() => {
+                loadAppointments();
+                loadMedicines();
+              }}
               className="inline-flex items-center gap-1.5 rounded-xl border border-navy-200 bg-white px-3.5 py-2 text-xs font-bold text-navy-800 shadow-soft hover:bg-navy-50 dark:border-white/10 dark:bg-navy-900 dark:text-white cursor-pointer active:scale-95 transition-all"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
