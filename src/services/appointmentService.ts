@@ -1,10 +1,13 @@
 import { supabase } from "../supabase/supabase";
-import type { Appointment } from "../types/appointment";
+import { smsService } from "./smsService";
+import { medicineService } from "./medicineService";
+import type { Appointment, AppointmentStatus } from "../types/appointment";
 
 export interface MedicineItem {
   id: string;
   name: string;
-  dosage: string;
+  category: string;
+  dosage?: string;
   stock_quantity: number;
   unit: string;
 }
@@ -40,6 +43,26 @@ export const CLINIC_20_SLOTS: string[] = [
   "03:20 PM",
 ];
 
+export const CLINIC_TIME_SLOTS: string[] = CLINIC_20_SLOTS;
+
+export function parseTimeToMinutes(timeStr?: string): number {
+  if (!timeStr) return 9999;
+  const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (!match) return 9999;
+
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const period = match[3].toUpperCase();
+
+  if (period === "AM" && hours === 12) {
+    hours = 0;
+  } else if (period === "PM" && hours !== 12) {
+    hours += 12;
+  }
+
+  return hours * 60 + minutes;
+}
+
 function formatFullName(first?: string, middle?: string, last?: string, fallback?: string): string {
   if (last && first) {
     const m = middle?.trim() ? ` ${middle.trim().charAt(0)}.` : "";
@@ -59,18 +82,19 @@ function mapRowToAppointment(row: any): Appointment {
   return {
     id: row.id,
     patientName: constructedName,
+    firstName: row.first_name || undefined,
+    lastName: row.last_name || undefined,
+    middleName: row.middle_name || undefined,
     contactNumber: row.contact_number || row.contactNumber,
     barangay: row.purok ? `${row.purok}, ${row.barangay || "Kumintang Ilaya"}` : (row.barangay || "Kumintang Ilaya"),
+    purok: row.purok || undefined,
     date: row.date,
     time: row.time,
     reason: row.reason,
     notes: row.notes,
     idPhotoUrl: row.id_photo_url || row.idPhotoUrl,
     remarks: row.remarks,
-    completionPhotoUrl:
-      row.completion_photo_url ||
-      row.completionPhotoUrl ||
-      undefined,
+    completionPhotoUrl: row.completion_photo_url || row.completionPhotoUrl || undefined,
     status: row.status,
     createdAt: row.created_at || row.createdAt,
   };
@@ -98,6 +122,8 @@ export const appointmentService = {
     contactNumber: string;
     barangay: string;
     purok?: string;
+    date: string;
+    time: string;
     reason: string;
     notes?: string;
     idPhotoUrl?: string;
@@ -117,6 +143,8 @@ export const appointmentService = {
           contact_number: payload.contactNumber.trim(),
           barangay: payload.barangay.trim(),
           purok: payload.purok?.trim() || null,
+          date: payload.date,
+          time: payload.time,
           reason: payload.reason,
           notes: payload.notes?.trim() || null,
           id_photo_url: payload.idPhotoUrl || null,
@@ -128,6 +156,80 @@ export const appointmentService = {
 
     if (error) {
       console.error("appointmentService.create error:", error.message);
+      throw error;
+    }
+
+    void smsService.sendPending(data.id);
+    return mapRowToAppointment(data);
+  },
+
+  async confirmAppointmentWithSms(
+    appointmentId: string,
+    targetDate: string,
+    targetTime: string
+  ): Promise<Appointment> {
+    // 1. Update appointment to Confirmed with assigned date/time
+    const { data, error } = await supabase
+      .from("appointments")
+      .update({
+        status: "Confirmed",
+        date: targetDate,
+        time: targetTime,
+      })
+      .eq("id", appointmentId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error confirming appointment:", error.message);
+      throw error;
+    }
+
+    // 2. Compute accurate chronological queue number based on time slot
+    const { data: dayAppointments, error: fetchErr } = await supabase
+      .from("appointments")
+      .select("id, time")
+      .eq("date", targetDate)
+      .eq("status", "Confirmed");
+
+    if (fetchErr) {
+      console.warn("Could not calculate precise time queue position, defaulting to 1:", fetchErr.message);
+    }
+
+    const sortedDayList = (dayAppointments || []).sort(
+      (a, b) => parseTimeToMinutes(a.time) - parseTimeToMinutes(b.time)
+    );
+
+    const calculatedIndex = sortedDayList.findIndex((item) => item.id === appointmentId);
+    const assignedQueueNumber = calculatedIndex >= 0 ? calculatedIndex + 1 : sortedDayList.length;
+
+    // 3. Dispatch confirmed SMS with synchronized queue number
+    void smsService.sendConfirmed(appointmentId, assignedQueueNumber);
+
+    return mapRowToAppointment(data);
+  },
+
+  async updateScheduleAndStatus(
+    id: string,
+    payload: { date: string; time: string; status: string }
+  ): Promise<Appointment> {
+    if (payload.status === "Confirmed") {
+      return this.confirmAppointmentWithSms(id, payload.date, payload.time);
+    }
+
+    const { data, error } = await supabase
+      .from("appointments")
+      .update({
+        date: payload.date,
+        time: payload.time,
+        status: payload.status,
+      })
+      .eq("id", id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("appointmentService.updateScheduleAndStatus error:", error.message);
       throw error;
     }
 
@@ -166,9 +268,7 @@ export const appointmentService = {
 
   async uploadIdPhoto(file: File): Promise<string> {
     const fileExt = file.name.split(".").pop() || "jpg";
-    const fileName = `philsys_${Date.now()}_${Math.random()
-      .toString(36)
-      .substring(2, 9)}.${fileExt}`;
+    const fileName = `philsys_${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
     const filePath = `ids/${fileName}`;
 
     const bucketName = "appointment-ids";
@@ -209,7 +309,7 @@ export const appointmentService = {
       });
 
     if (uploadError) {
-      console.error("Storage upload failed error detail:", uploadError);
+      console.error("Storage upload error:", uploadError);
       throw new Error(`Storage upload error: ${uploadError.message}`);
     }
 
@@ -218,86 +318,26 @@ export const appointmentService = {
       .getPublicUrl(filePath);
 
     if (!publicUrlData?.publicUrl) {
-      throw new Error("Failed to get public URL for completion photo.");
+      throw new Error("Failed to get public URL for procedure proof photo.");
     }
 
     return publicUrlData.publicUrl;
   },
 
-  async updateScheduleAndStatus(
-    id: string,
-    payload: { date: string; time: string; status: string }
-  ): Promise<Appointment> {
-    const { data, error } = await supabase
-      .from("appointments")
-      .update({
-        date: payload.date,
-        time: payload.time,
-        status: payload.status,
-      })
-      .eq("id", id)
-      .select()
-      .single();
-
-    if (error) {
-      console.error("appointmentService.updateScheduleAndStatus error:", error.message);
-      throw error;
-    }
-
-    return mapRowToAppointment(data);
-  },
-
   async listMedicines(): Promise<MedicineItem[]> {
-    const { data, error } = await supabase
-      .from("medicines")
-      .select("*")
-      .order("name", { ascending: true });
-
-    if (error) {
-      console.error("appointmentService.listMedicines error:", error.message);
-      return [];
-    }
-
-    return (data || []).map((row: any) => ({
-      id: String(row.id),
-      name: row.name || "Unnamed Medicine",
-      dosage: row.dosage || row.category || "Standard",
-      stock_quantity: Number(row.quantity ?? row.stock_quantity ?? row.stock ?? 0),
-      unit: row.unit || "pcs",
+    const medicines = await medicineService.list();
+    return medicines.map((m) => ({
+      id: m.id,
+      name: m.name,
+      category: m.category,
+      dosage: m.dosage,
+      stock_quantity: m.quantity,
+      unit: m.unit,
     }));
   },
 
   async deductMedicineStock(medicineId: string, quantity: number): Promise<void> {
-    const { error } = await supabase.rpc("deduct_medicine_stock", {
-      p_medicine_id: String(medicineId),
-      p_quantity: Number(quantity),
-    });
-
-    if (error) {
-      console.warn(`RPC deduction failed for ${medicineId}, running direct fallback...`, error.message);
-      
-      const { data: currentMed, error: fetchErr } = await supabase
-        .from("medicines")
-        .select("*")
-        .eq("id", medicineId)
-        .single();
-
-      if (fetchErr || !currentMed) {
-        throw new Error(error.message);
-      }
-
-      const currentStock = Number(currentMed.quantity ?? currentMed.stock_quantity ?? 0);
-      const nextStock = Math.max(0, currentStock - Number(quantity));
-      const nextStatus = nextStock <= 0 ? "Out of Stock" : nextStock <= 20 ? "Low Stock" : "In Stock";
-
-      await supabase
-        .from("medicines")
-        .update({
-          quantity: nextStock,
-          status: nextStatus,
-        })
-        .eq("id", medicineId);
-    }
+    await medicineService.deductStock(medicineId, quantity);
   },
 
   async completeAppointment(
@@ -337,7 +377,7 @@ export const appointmentService = {
     }
   },
 
-  async updateStatus(id: string, status: string): Promise<Appointment> {
+  async updateStatus(id: string, status: AppointmentStatus | string): Promise<Appointment> {
     const { data, error } = await supabase
       .from("appointments")
       .update({ status })

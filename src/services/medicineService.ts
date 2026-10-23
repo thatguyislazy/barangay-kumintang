@@ -1,11 +1,15 @@
 import { supabase } from "../supabase/supabase";
 import type { Medicine, MedicineFormData, StockStatus } from "../types/medicine";
 
-export function computeStatus(quantity: number, expirationDate: string): StockStatus {
-  const daysToExpire =
-    (new Date(expirationDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+export function computeStatus(quantity: number, expirationDate?: string): StockStatus {
   if (quantity <= 0) return "Out of Stock";
-  if (daysToExpire <= 45 && daysToExpire >= 0) return "Expiring Soon";
+  
+  if (expirationDate) {
+    const daysToExpire =
+      (new Date(expirationDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+    if (daysToExpire <= 45 && daysToExpire >= 0) return "Expiring Soon";
+  }
+
   if (quantity <= 20) return "Low Stock";
   return "In Stock";
 }
@@ -13,12 +17,13 @@ export function computeStatus(quantity: number, expirationDate: string): StockSt
 function mapRowToMedicine(row: any): Medicine {
   return {
     id: String(row.id),
-    name: row.name,
-    category: row.category,
+    name: row.name || "Unnamed Medicine",
+    category: row.category || "General",
+    dosage: row.dosage || undefined,
     quantity: Number(row.quantity ?? row.stock_quantity ?? 0),
-    unit: row.unit || "pcs",
-    expirationDate: row.expiration_date,
-    status: row.status,
+    unit: row.unit || "tablets",
+    expirationDate: row.expiration_date || "",
+    status: row.status || computeStatus(Number(row.quantity ?? 0), row.expiration_date),
   };
 }
 
@@ -27,7 +32,7 @@ export const medicineService = {
     const { data, error } = await supabase
       .from("medicines")
       .select("*")
-      .order("created_at", { ascending: false });
+      .order("name", { ascending: true });
 
     if (error) {
       console.error("Error fetching medicines:", error.message);
@@ -41,15 +46,19 @@ export const medicineService = {
     const id = `MED-${Date.now().toString().slice(-4)}`;
     const status = computeStatus(data.quantity, data.expirationDate);
 
-    const payload = {
+    const payload: Record<string, any> = {
       id,
-      name: data.name,
-      category: data.category,
-      quantity: data.quantity,
-      unit: data.unit,
+      name: data.name.trim(),
+      category: data.category.trim() || "General",
+      quantity: Math.max(0, Number(data.quantity) || 0),
+      unit: data.unit.trim() || "tablets",
       expiration_date: data.expirationDate,
       status,
     };
+
+    if (data.dosage) {
+      payload.dosage = data.dosage.trim();
+    }
 
     const { data: inserted, error } = await supabase
       .from("medicines")
@@ -77,15 +86,16 @@ export const medicineService = {
     }
 
     const currentQty = Number(current.quantity ?? current.stock_quantity ?? 0);
-    const nextQuantity = data.quantity !== undefined ? data.quantity : currentQty;
+    const nextQuantity = data.quantity !== undefined ? Math.max(0, Number(data.quantity)) : currentQty;
     const nextExpDate = data.expirationDate !== undefined ? data.expirationDate : current.expiration_date;
     const nextStatus = computeStatus(nextQuantity, nextExpDate);
 
     const payload: Record<string, any> = {
-      ...(data.name !== undefined && { name: data.name }),
-      ...(data.category !== undefined && { category: data.category }),
-      ...(data.quantity !== undefined && { quantity: data.quantity }),
-      ...(data.unit !== undefined && { unit: data.unit }),
+      ...(data.name !== undefined && { name: data.name.trim() }),
+      ...(data.category !== undefined && { category: data.category.trim() }),
+      ...(data.dosage !== undefined && { dosage: data.dosage.trim() }),
+      ...(data.quantity !== undefined && { quantity: nextQuantity }),
+      ...(data.unit !== undefined && { unit: data.unit.trim() }),
       ...(data.expirationDate !== undefined && { expiration_date: data.expirationDate }),
       status: nextStatus,
     };
@@ -103,18 +113,6 @@ export const medicineService = {
     }
 
     return mapRowToMedicine(updated);
-  },
-
-  async remove(id: string): Promise<void> {
-    const { error } = await supabase
-      .from("medicines")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      console.error("Error deleting medicine:", error.message);
-      throw error;
-    }
   },
 
   async adjustStock(id: string, delta: number): Promise<Medicine> {
@@ -145,5 +143,21 @@ export const medicineService = {
     }
 
     return mapRowToMedicine(updated);
+  },
+
+  async deductStock(id: string, quantityToDeduct: number): Promise<void> {
+    await this.adjustStock(id, -Math.abs(quantityToDeduct));
+  },
+
+  async remove(id: string): Promise<void> {
+    const { error } = await supabase
+      .from("medicines")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      console.error("Error deleting medicine:", error.message);
+      throw error;
+    }
   },
 };

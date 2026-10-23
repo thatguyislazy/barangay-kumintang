@@ -9,9 +9,9 @@ import { Modal } from "../../components/ui/Modal";
 import { StatusBadge } from "../../components/ui/Badge";
 import { Table, THead, TBody, Th, Td, EmptyState } from "../../components/ui/Table";
 import { medicineService } from "../../services/medicineService";
-import type { Medicine, StockStatus } from "../../types/medicine";
+import type { Medicine, StockStatus, MedicineFormData } from "../../types/medicine";
 
-const emptyForm = {
+const emptyForm: MedicineFormData = {
   name: "",
   category: "",
   quantity: 0,
@@ -34,7 +34,7 @@ export default function Medicines() {
   const [statusFilter, setStatusFilter] = useState<(typeof statusOptions)[number]>("All");
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Medicine | null>(null);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState<MedicineFormData>(emptyForm);
   const [saving, setSaving] = useState(false);
 
   async function load() {
@@ -184,17 +184,22 @@ export default function Medicines() {
                       <p className="font-semibold text-ink-900 dark:text-white">{m.name}</p>
                       <p className="text-xs text-ink-500 dark:text-white/50">{m.id}</p>
                     </Td>
-                    <Td>{m.category}</Td>
+                    <Td>
+                      <span className="inline-flex rounded-md bg-navy-50 px-2 py-0.5 text-xs font-medium text-navy-700 dark:bg-white/10 dark:text-white/80">
+                        {m.category}
+                      </span>
+                    </Td>
                     <Td>
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleAdjust(m.id, -1)}
+                          disabled={m.quantity <= 0}
                           aria-label="Decrease stock"
-                          className="rounded-md border border-surface-border p-1 text-ink-500 hover:bg-surface-soft dark:border-white/15 dark:text-white/60 dark:hover:bg-white/10 cursor-pointer"
+                          className="rounded-md border border-surface-border p-1 text-ink-500 hover:bg-surface-soft disabled:opacity-30 dark:border-white/15 dark:text-white/60 dark:hover:bg-white/10 cursor-pointer"
                         >
                           <Minus className="h-3.5 w-3.5" />
                         </button>
-                        <span className="w-14 text-center font-medium">
+                        <span className="w-16 text-center font-mono font-medium">
                           {m.quantity} {m.unit}
                         </span>
                         <button
@@ -206,7 +211,7 @@ export default function Medicines() {
                         </button>
                       </div>
                     </Td>
-                    <Td>{m.expirationDate}</Td>
+                    <Td className="text-xs">{m.expirationDate}</Td>
                     <Td>
                       <StatusBadge status={m.status} />
                     </Td>
@@ -254,6 +259,7 @@ export default function Medicines() {
         <div className="space-y-4">
           <Input
             label="Medicine Name"
+            placeholder="e.g. Paracetamol"
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             required
@@ -261,11 +267,13 @@ export default function Medicines() {
           <div className="grid grid-cols-2 gap-4">
             <Input
               label="Category"
+              placeholder="e.g. Analgesic, Antibiotic"
               value={form.category}
               onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
             />
             <Input
               label="Unit"
+              placeholder="tablets, capsules, bottles"
               value={form.unit}
               onChange={(e) => setForm((f) => ({ ...f, unit: e.target.value }))}
             />
@@ -276,7 +284,7 @@ export default function Medicines() {
               type="number"
               min={0}
               value={form.quantity}
-              onChange={(e) => setForm((f) => ({ ...f, quantity: Number(e.target.value) }))}
+              onChange={(e) => setForm((f) => ({ ...f, quantity: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
               required
             />
             <Input

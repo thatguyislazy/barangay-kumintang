@@ -4,6 +4,7 @@ export interface Medicine {
   id: string;
   name: string;
   category: string;
+  dosage?: string;
   quantity: number;
   unit: string;
   expirationDate: string;
@@ -13,6 +14,7 @@ export interface Medicine {
 export interface MedicineFormData {
   name: string;
   category: string;
+  dosage?: string;
   quantity: number;
   unit: string;
   expirationDate: string;
@@ -22,6 +24,7 @@ export interface MedicineRow {
   id: string;
   name: string;
   category: string;
+  dosage?: string | null;
   quantity: number;
   unit: string;
   expiration_date: string;
