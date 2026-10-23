@@ -22,11 +22,7 @@ export const barangayConfig = {
   },
   logo: sealLogo,
   heroImage: heroImage,
-  stats: [
-    { label: "Households Served", value: "" },
-    { label: "Digital Requests Processed", value: "" },
-    { label: "Years of Service", value: "" },
-  ],
+  stats: [],
 };
 
 export type BarangayConfig = typeof barangayConfig;
