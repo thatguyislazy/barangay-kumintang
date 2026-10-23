@@ -112,19 +112,6 @@ export function Hero() {
                 Learn More
               </a>
             </div>
-
-            <dl className="mt-12 grid grid-cols-3 gap-6 border-t border-navy-100 pt-6 dark:border-white/10">
-              {barangayConfig.stats.map((stat) => (
-                <div key={stat.label}>
-                  <dt className="text-xs font-medium text-ink-500 dark:text-white/50">
-                    {stat.label}
-                  </dt>
-                  <dd className="mt-1 font-display text-xl font-bold text-navy-800 dark:text-white sm:text-2xl">
-                    {stat.value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
           </div>
 
           {/* Right Column: Loading Skeleton or Announcement Carousel */}
