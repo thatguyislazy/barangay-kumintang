@@ -330,7 +330,7 @@ export default function MedicalAppointment() {
                     />
 
                     <Input
-                      label="Active Mobile Number *"
+                      label="Active Mobile Number(Dito/Globe Only) *"
                       placeholder="09XX-XXX-XXXX"
                       value={form.contactNumber}
                       onChange={(e) => update("contactNumber", e.target.value)}
