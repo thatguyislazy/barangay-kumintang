@@ -163,12 +163,57 @@ export const appointmentService = {
     return mapRowToAppointment(data);
   },
 
+  async createWalkIn(payload: {
+    firstName: string;
+    lastName: string;
+    middleName?: string;
+    contactNumber?: string;
+    purok?: string;
+    reason: string;
+    notes?: string;
+  }): Promise<Appointment> {
+    const today = new Date().toISOString().split("T")[0];
+    const refId = `WALK-${Math.floor(1000 + Math.random() * 9000)}`;
+    const fullName = formatFullName(payload.firstName, payload.middleName, payload.lastName);
+
+    const taken = await this.getTakenTimeSlots(today);
+    const assignedTime = CLINIC_20_SLOTS.find((s) => !taken.includes(s)) || "Walk-in";
+
+    const { data, error } = await supabase
+      .from("appointments")
+      .insert([
+        {
+          id: refId,
+          first_name: payload.firstName.trim(),
+          last_name: payload.lastName.trim(),
+          middle_name: payload.middleName?.trim() || null,
+          patient_name: fullName,
+          contact_number: payload.contactNumber?.trim() || "Walk-in (No Phone)",
+          barangay: payload.purok ? `${payload.purok}, Kumintang Ilaya` : "Kumintang Ilaya",
+          purok: payload.purok?.trim() || null,
+          date: today,
+          time: assignedTime,
+          reason: payload.reason,
+          notes: payload.notes?.trim() ? `[Walk-in] ${payload.notes.trim()}` : "[Walk-in Resident]",
+          status: "Confirmed",
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      console.error("appointmentService.createWalkIn error:", error.message);
+      throw error;
+    }
+
+    return mapRowToAppointment(data);
+  },
+
   async confirmAppointmentWithSms(
     appointmentId: string,
     targetDate: string,
     targetTime: string
   ): Promise<Appointment> {
-    // 1. Update appointment to Confirmed with assigned date/time
     const { data, error } = await supabase
       .from("appointments")
       .update({
@@ -185,7 +230,6 @@ export const appointmentService = {
       throw error;
     }
 
-    // 2. Compute accurate chronological queue number based on time slot
     const { data: dayAppointments, error: fetchErr } = await supabase
       .from("appointments")
       .select("id, time")
@@ -203,7 +247,6 @@ export const appointmentService = {
     const calculatedIndex = sortedDayList.findIndex((item) => item.id === appointmentId);
     const assignedQueueNumber = calculatedIndex >= 0 ? calculatedIndex + 1 : sortedDayList.length;
 
-    // 3. Dispatch confirmed SMS with synchronized queue number
     void smsService.sendConfirmed(appointmentId, assignedQueueNumber);
 
     return mapRowToAppointment(data);

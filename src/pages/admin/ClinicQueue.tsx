@@ -20,6 +20,8 @@ import {
   Trash2,
   Calendar,
   Activity,
+  UserPlus,
+  X,
 } from "lucide-react";
 import { AdminLayout } from "../../components/admin/AdminLayout";
 import { appointmentService, type MedicineItem, type DispenseItem } from "../../services/appointmentService";
@@ -69,18 +71,28 @@ export default function ClinicQueue() {
   const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
   const [isCalling, setIsCalling] = useState<string | null>(null);
 
-  // Completion Form State
+  const [isWalkInOpen, setIsWalkInOpen] = useState(false);
+  const [isSubmittingWalkIn, setIsSubmittingWalkIn] = useState(false);
+  const [walkInError, setWalkInError] = useState<string | null>(null);
+  const [walkInForm, setWalkInForm] = useState({
+    firstName: "",
+    lastName: "",
+    middleName: "",
+    contactNumber: "",
+    purok: "Purok 1",
+    reason: "Free Check-up",
+    notes: "",
+  });
+
   const [remarks, setRemarks] = useState<string>("");
   const [proofFile, setProofFile] = useState<File | null>(null);
   const [proofPreview, setProofPreview] = useState<string>("");
   const [isSubmittingCompletion, setIsSubmittingCompletion] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Multiple Medicine Selection State
   const [medicinesList, setMedicinesList] = useState<MedicineItem[]>([]);
   const [dispenseEntries, setDispenseEntries] = useState<SelectedMedicineEntry[]>([]);
 
-  // Camera & File States
   const [captureMode, setCaptureMode] = useState<"upload" | "webcam">("upload");
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -140,8 +152,6 @@ export default function ClinicQueue() {
     };
   }, [loadAppointments, loadMedicines]);
 
-  // Dynamic Sequential Queue: Only unserved "Confirmed" patients are included.
-  // When Patient #1 is marked as "Completed", they drop out and Patient #2 automatically assumes #1.
   const todayQueue = useMemo(() => {
     return appointments
       .filter((a) => a.date === todayStr && a.status === "Confirmed")
@@ -193,6 +203,47 @@ export default function ClinicQueue() {
       setDispenseEntries((prev) =>
         prev.map((entry, i) => (i === index ? { ...entry, quantity: parsed } : entry))
       );
+    }
+  };
+
+  const handleCreateWalkIn = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!walkInForm.firstName.trim() || !walkInForm.lastName.trim()) {
+      setWalkInError("Please enter both First Name and Last Name.");
+      return;
+    }
+
+    try {
+      setIsSubmittingWalkIn(true);
+      setWalkInError(null);
+
+      const created = await appointmentService.createWalkIn({
+        firstName: walkInForm.firstName,
+        lastName: walkInForm.lastName,
+        middleName: walkInForm.middleName,
+        contactNumber: walkInForm.contactNumber,
+        purok: walkInForm.purok,
+        reason: walkInForm.reason,
+        notes: walkInForm.notes,
+      });
+
+      setAppointments((prev) => [created, ...prev]);
+      setIsWalkInOpen(false);
+      setWalkInForm({
+        firstName: "",
+        lastName: "",
+        middleName: "",
+        contactNumber: "",
+        purok: "Purok 1",
+        reason: "Free Check-up",
+        notes: "",
+      });
+      await loadAppointments();
+    } catch (err: any) {
+      console.error("Error creating walk-in patient:", err);
+      setWalkInError(err?.message || "Failed to register walk-in patient.");
+    } finally {
+      setIsSubmittingWalkIn(false);
     }
   };
 
@@ -399,7 +450,7 @@ export default function ClinicQueue() {
       validDispenseList.push({
         medicineId: String(medInfo.id),
         quantity: qtyNum,
-        medicineName: `${medInfo.name} (${medInfo.dosage})`,
+        medicineName: `${medInfo.name} (${medInfo.dosage || medInfo.category})`,
       });
     }
 
@@ -416,14 +467,12 @@ export default function ClinicQueue() {
         validDispenseList
       );
 
-      // Optimistic Local State Update: Immediately marks patient Completed so the UI shifts #2 to #1 instantaneously
       setAppointments((prev) =>
         prev.map((apt) =>
           apt.id === selectedAppointment.id ? { ...apt, status: "Completed" } : apt
         )
       );
 
-      // Optimistically deduct stock quantities from local medicines list
       if (validDispenseList.length > 0) {
         const deductionMap = new Map(validDispenseList.map((d) => [d.medicineId, d.quantity]));
         setMedicinesList((prev) =>
@@ -452,10 +501,9 @@ export default function ClinicQueue() {
   return (
     <AdminLayout
       title="Clinic Queue & Triage Desk"
-      description="Manage today's consultation line, send announcements to TV monitor, and verify patient records."
+      description="Manage today's consultation line, register walk-in residents, and trigger TV announcements."
     >
       <div className="space-y-6">
-        {/* Streamlined Top Bar */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <span
@@ -476,6 +524,14 @@ export default function ClinicQueue() {
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsWalkInOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white shadow-soft hover:bg-emerald-500 cursor-pointer active:scale-95 transition-all"
+            >
+              <UserPlus className="h-3.5 w-3.5" />
+              + Walk-in Patient (Senior / Offline)
+            </button>
+
             <button
               onClick={() => {
                 loadAppointments();
@@ -504,7 +560,6 @@ export default function ClinicQueue() {
           </div>
         </div>
 
-        {/* NOW SERVING CARD */}
         {nowServing && (
           <div className="relative overflow-hidden rounded-3xl border-2 border-blue-500/40 bg-gradient-to-r from-blue-900/10 via-white to-blue-50/50 p-6 shadow-xl dark:border-blue-500/30 dark:from-navy-900 dark:via-navy-900/90 dark:to-blue-950/40">
             <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
@@ -558,7 +613,6 @@ export default function ClinicQueue() {
           </div>
         )}
 
-        {/* FULL PATIENT QUEUE TABLE */}
         {isLoading ? (
           <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-2xl border border-navy-100 bg-white/50 dark:border-white/10 dark:bg-navy-900/40">
             <Loader2 className="h-7 w-7 animate-spin text-navy-800 dark:text-white" />
@@ -612,7 +666,7 @@ export default function ClinicQueue() {
                       </div>
                       {item.notes && (
                         <p className="mt-1 text-xs italic text-ink-400 dark:text-white/40">
-                          Note: {item.notes}
+                          {item.notes}
                         </p>
                       )}
                     </td>
@@ -641,7 +695,7 @@ export default function ClinicQueue() {
                         </a>
                       ) : (
                         <span className="text-xs text-ink-400 dark:text-white/40">
-                          No ID uploaded
+                          Walk-in / Verified at Desk
                         </span>
                       )}
                     </td>
@@ -675,7 +729,7 @@ export default function ClinicQueue() {
                     >
                       <Users className="mx-auto h-8 w-8 stroke-1 text-navy-400" />
                       <p className="mt-2 font-medium">No confirmed patients queued for today.</p>
-                      <p className="text-xs">Appointments confirmed in the admin booking tab will appear here.</p>
+                      <p className="text-xs">Click "+ Walk-in Patient" to add an offline resident immediately.</p>
                     </td>
                   </tr>
                 )}
@@ -684,7 +738,167 @@ export default function ClinicQueue() {
           </div>
         )}
 
-        {/* CONSULTATION COMPLETION MODAL */}
+        {isWalkInOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className="absolute inset-0 bg-navy-950/60 backdrop-blur-sm"
+              onClick={() => setIsWalkInOpen(false)}
+            />
+            <div className="relative w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl dark:bg-navy-900 border border-navy-100 dark:border-white/10">
+              <div className="flex items-center justify-between pb-3 border-b border-navy-100 dark:border-white/10">
+                <div className="flex items-center gap-2">
+                  <UserPlus className="h-5 w-5 text-emerald-600" />
+                  <h2 className="font-display text-lg font-bold text-navy-900 dark:text-white">
+                    Add Walk-in / Senior Resident
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsWalkInOpen(false)}
+                  className="rounded-lg p-1.5 text-ink-400 hover:bg-navy-50 dark:hover:bg-white/10 cursor-pointer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {walkInError && (
+                <div className="mt-3 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-medium text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
+                  <span>{walkInError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleCreateWalkIn} className="mt-4 space-y-3.5">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-ink-600 dark:text-white/70 mb-1">
+                      First Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. John"
+                      value={walkInForm.firstName}
+                      onChange={(e) => setWalkInForm({ ...walkInForm, firstName: e.target.value })}
+                      className="w-full rounded-xl border border-navy-200 bg-white px-3 py-2 text-xs text-navy-900 outline-none focus:border-navy-500 dark:border-white/15 dark:bg-navy-800 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-ink-600 dark:text-white/70 mb-1">
+                      Last Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Doe"
+                      value={walkInForm.lastName}
+                      onChange={(e) => setWalkInForm({ ...walkInForm, lastName: e.target.value })}
+                      className="w-full rounded-xl border border-navy-200 bg-white px-3 py-2 text-xs text-navy-900 outline-none focus:border-navy-500 dark:border-white/15 dark:bg-navy-800 dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-ink-600 dark:text-white/70 mb-1">
+                      Middle Name (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Smith"
+                      value={walkInForm.middleName}
+                      onChange={(e) => setWalkInForm({ ...walkInForm, middleName: e.target.value })}
+                      className="w-full rounded-xl border border-navy-200 bg-white px-3 py-2 text-xs text-navy-900 outline-none focus:border-navy-500 dark:border-white/15 dark:bg-navy-800 dark:text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-ink-600 dark:text-white/70 mb-1">
+                      Contact / Relative Phone
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="0917XXXXXXX or leave empty"
+                      value={walkInForm.contactNumber}
+                      onChange={(e) => setWalkInForm({ ...walkInForm, contactNumber: e.target.value })}
+                      className="w-full rounded-xl border border-navy-200 bg-white px-3 py-2 text-xs text-navy-900 outline-none focus:border-navy-500 dark:border-white/15 dark:bg-navy-800 dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-ink-600 dark:text-white/70 mb-1">
+                      Purok / Zone
+                    </label>
+                    <select
+                      value={walkInForm.purok}
+                      onChange={(e) => setWalkInForm({ ...walkInForm, purok: e.target.value })}
+                      className="w-full rounded-xl border border-navy-200 bg-white px-3 py-2 text-xs text-navy-900 outline-none dark:border-white/15 dark:bg-navy-800 dark:text-white cursor-pointer"
+                    >
+                      <option value="Purok 1">Purok 1</option>
+                      <option value="Purok 2">Purok 2</option>
+                      <option value="Purok 3">Purok 3</option>
+                      <option value="Purok 4">Purok 4</option>
+                      <option value="Purok 5">Purok 5</option>
+                      <option value="Purok 6">Purok 6</option>
+                      <option value="Purok 7">Purok 7</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-ink-600 dark:text-white/70 mb-1">
+                      Requested Service *
+                    </label>
+                    <select
+                      value={walkInForm.reason}
+                      onChange={(e) => setWalkInForm({ ...walkInForm, reason: e.target.value })}
+                      className="w-full rounded-xl border border-navy-200 bg-white px-3 py-2 text-xs text-navy-900 outline-none dark:border-white/15 dark:bg-navy-800 dark:text-white cursor-pointer"
+                    >
+                      <option value="Free Check-up">Free Check-up / Consultation</option>
+                      <option value="Medicine">Medicine Dispensing / Maintenance</option>
+                      <option value="Vaccination">Vaccination / Immunization</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-ink-600 dark:text-white/70 mb-1">
+                    Desk Notes / Senior Citizen ID No. (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Senior Citizen ID #1234 or special notes"
+                    value={walkInForm.notes}
+                    onChange={(e) => setWalkInForm({ ...walkInForm, notes: e.target.value })}
+                    className="w-full rounded-xl border border-navy-200 bg-white px-3 py-2 text-xs text-navy-900 outline-none dark:border-white/15 dark:bg-navy-800 dark:text-white"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-navy-100 dark:border-white/10">
+                  <button
+                    type="button"
+                    onClick={() => setIsWalkInOpen(false)}
+                    className="rounded-xl px-4 py-2 text-xs font-semibold text-ink-600 hover:bg-surface-soft dark:text-white/70 dark:hover:bg-white/10 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingWalkIn}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-soft hover:bg-emerald-500 disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSubmittingWalkIn ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <UserPlus className="h-3.5 w-3.5" />
+                    )}
+                    {isSubmittingWalkIn ? "Adding to Queue..." : "Add to Today's Queue"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {selectedAppointment && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <div
@@ -707,7 +921,6 @@ export default function ClinicQueue() {
               )}
 
               <form onSubmit={handleCompleteConsultation} className="mt-4 space-y-4">
-                {/* MULTIPLE MEDICINE INVENTORY DISPENSING */}
                 <div className="rounded-2xl border border-blue-200 bg-blue-50/50 p-4 dark:border-blue-900/40 dark:bg-blue-950/20 space-y-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-blue-800 dark:text-blue-300">
@@ -741,7 +954,6 @@ export default function ClinicQueue() {
                             className="rounded-xl border border-navy-100 bg-white p-2.5 shadow-sm dark:border-white/10 dark:bg-navy-800/80 space-y-1.5"
                           >
                             <div className="flex items-center gap-2">
-                              {/* Medicine Dropdown */}
                               <div className="flex-1">
                                 <select
                                   value={entry.medicineId}
@@ -755,13 +967,12 @@ export default function ClinicQueue() {
                                       value={med.id}
                                       disabled={med.stock_quantity <= 0}
                                     >
-                                      {med.name} {med.dosage ? `(${med.dosage})` : ""} - Stock: {med.stock_quantity} {med.unit}
+                                      {med.name} {med.dosage ? `(${med.dosage})` : `[${med.category}]`} — Stock: {med.stock_quantity} {med.unit}
                                     </option>
                                   ))}
                                 </select>
                               </div>
 
-                              {/* Quantity Input */}
                               <div className="w-24">
                                 <input
                                   type="number"
@@ -775,7 +986,6 @@ export default function ClinicQueue() {
                                 />
                               </div>
 
-                              {/* Delete Button */}
                               <button
                                 type="button"
                                 onClick={() => handleRemoveMedicineRow(idx)}
@@ -786,7 +996,6 @@ export default function ClinicQueue() {
                               </button>
                             </div>
 
-                            {/* Remaining Stock Feedback */}
                             {selectedMed && (
                               <div className="flex justify-between px-1 text-[11px] text-ink-500 dark:text-white/60">
                                 <span>
@@ -827,7 +1036,6 @@ export default function ClinicQueue() {
                   />
                 </div>
 
-                {/* Procedure Proof Photo (Required) */}
                 <div>
                   <div className="flex items-center justify-between pb-1.5">
                     <label className="block text-xs font-semibold uppercase tracking-wider text-ink-600 dark:text-white/70">
