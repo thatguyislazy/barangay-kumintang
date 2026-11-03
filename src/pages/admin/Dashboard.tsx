@@ -15,7 +15,6 @@ import { StatusBadge } from "../../components/ui/Badge";
 import { appointmentService } from "../../services/appointmentService";
 import { patientService } from "../../services/patientService";
 import { medicineService } from "../../services/medicineService";
-import { useAuth } from "../../context/AuthContext";
 import type { Appointment } from "../../types/appointment";
 
 interface Stats {
@@ -25,7 +24,6 @@ interface Stats {
 }
 
 export default function Dashboard() {
-  const { user } = useAuth();
   const [stats, setStats] = useState<Stats | null>(null);
   const [recent, setRecent] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,11 +59,9 @@ export default function Dashboard() {
     load();
   }, []);
 
-  const adminName = user?.fullName?.split(" ")[0] ?? "Admin";
-
   return (
     <AdminLayout
-      title={`Welcome back to Brgy Health Center System, ${adminName}`}
+      title="Welcome back to Brgy Health Center System"
       description="Here's what's happening at the health center today."
     >
       {loading || !stats ? (
