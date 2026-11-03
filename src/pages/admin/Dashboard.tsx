@@ -61,10 +61,12 @@ export default function Dashboard() {
     load();
   }, []);
 
+  const adminName = user?.fullName?.split(" ")[0] ?? "Admin";
+
   return (
     <AdminLayout
-      title={`Welcome back, ${user?.fullName?.split(" ")[0] ?? "Admin"}`}
-      description="Here's what's happening at the barangay today."
+      title={`Welcome back to Brgy Health Center System, ${adminName}`}
+      description="Here's what's happening at the health center today."
     >
       {loading || !stats ? (
         <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
