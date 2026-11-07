@@ -30,9 +30,9 @@ const clean = (value: unknown): string =>
     .replace(/[^\x20-\x7E]/g, "")
     .trim();
 
-type SmsType = "pending" | "confirmed";
+type SmsType = "pending" | "confirmed" | "rejected";
 
-function buildMessage(type: SmsType, appt: any, queueNumber?: number): string {
+function buildMessage(type: SmsType, appt: any, queueNumber?: number, rejectionReason?: string): string {
   const first = clean(appt.first_name || appt.patient_name) || "Patient";
   const ref = clean(appt.id);
   const when = `${clean(appt.date)} ${clean(appt.time)}`.trim();
@@ -41,11 +41,15 @@ function buildMessage(type: SmsType, appt: any, queueNumber?: number): string {
     return `Brgy Kumintang Ilaya: Hi ${first}, your request for ${clean(appt.reason)} on ${when} was received. Status: PENDING review. Ref ${ref}`;
   }
 
+  if (type === "rejected") {
+    const reason = clean(rejectionReason) || "Doctor unavailable / Center closed";
+    return `Brgy Kumintang Ilaya: Hi ${first}, sorry your appointment request (${ref}) was not approved. Reason: ${reason}. Please contact the health center.`;
+  }
+
   return `Brgy Kumintang Ilaya: Hi ${first}, your appointment on ${when} is CONFIRMED. Queue #${queueNumber}. Ref ${ref}. Watch the Clinic TV on arrival.`;
 }
 
 async function sendViaUniSms(apiKey: string, senderId: string, to: string, content: string) {
-  // Official UniSMS endpoint and Basic Auth specification
   const response = await fetch("https://unismsapi.com/api/sms", {
     method: "POST",
     headers: {
@@ -70,9 +74,9 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { appointmentId, type, queueNumber } = await req.json();
+    const { appointmentId, type, queueNumber, rejectionReason } = await req.json();
 
-    if (!appointmentId || (type !== "pending" && type !== "confirmed")) {
+    if (!appointmentId || (type !== "pending" && type !== "confirmed" && type !== "rejected")) {
       return reply({ status: "error", message: "Invalid request format" }, 400);
     }
 
@@ -140,11 +144,17 @@ Deno.serve(async (req: Request) => {
       if (!claimed || claimed.length === 0) {
         return reply({ status: "error", message: "Pending notification was already dispatched" }, 400);
       }
-    } else if (appt.status !== "Confirmed") {
-      return reply({ status: "error", message: "Appointment is not confirmed in database" }, 400);
+    } else if (type === "confirmed") {
+      if (appt.status !== "Confirmed") {
+        return reply({ status: "error", message: "Appointment is not confirmed in database" }, 400);
+      }
+    } else if (type === "rejected") {
+      if (appt.status !== "Cancelled") {
+        return reply({ status: "error", message: "Appointment is not cancelled in database" }, 400);
+      }
     }
 
-    const content = buildMessage(type, appt, queueNumber);
+    const content = buildMessage(type, appt, queueNumber, rejectionReason);
     const result = await sendViaUniSms(apiKey, senderId, to, content);
 
     if (!result.ok || result.data?.status === "error") {

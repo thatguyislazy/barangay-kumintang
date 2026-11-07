@@ -2,12 +2,11 @@ import { supabase } from "../supabase/supabase";
 
 type SmsResult = { success: true; data: unknown } | { success: false; error: string };
 
-// The edge function looks up the phone number and builds the message itself,
-// so the browser only identifies *which* appointment and *which* notification.
 async function invokeSendSms(body: {
   appointmentId: string;
-  type: "pending" | "confirmed";
+  type: "pending" | "confirmed" | "rejected";
   queueNumber?: number;
+  rejectionReason?: string;
 }): Promise<SmsResult> {
   try {
     const { data, error } = await supabase.functions.invoke("send-sms", { body });
@@ -30,13 +29,15 @@ async function invokeSendSms(body: {
 }
 
 export const smsService = {
-  /** Sent right after a patient books (public form). Works once per appointment. */
   sendPending(appointmentId: string) {
     return invokeSendSms({ appointmentId, type: "pending" });
   },
 
-  /** Sent when an admin confirms an appointment. Requires a signed-in admin. */
   sendConfirmed(appointmentId: string, queueNumber: number) {
     return invokeSendSms({ appointmentId, type: "confirmed", queueNumber });
+  },
+
+  sendRejected(appointmentId: string, rejectionReason: string) {
+    return invokeSendSms({ appointmentId, type: "rejected", rejectionReason });
   },
 };

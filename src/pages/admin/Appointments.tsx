@@ -59,6 +59,10 @@ export default function Appointments() {
   const [assignError, setAssignError] = useState<string | null>(null);
   const [takenSlots, setTakenSlots] = useState<string[]>([]);
 
+  // Rejection notes state
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [isRejecting, setIsRejecting] = useState(false);
+
   async function load() {
     try {
       setLoading(true);
@@ -85,7 +89,6 @@ export default function Appointments() {
     async function fetchTaken() {
       const taken = await appointmentService.getTakenTimeSlots(assignedDate);
       setTakenSlots(taken);
-      // If current assignedTime is taken, find first available
       if (taken.includes(assignedTime)) {
         const firstAvailable = CLINIC_20_SLOTS.find((s) => !taken.includes(s)) || "";
         setAssignedTime(firstAvailable);
@@ -113,6 +116,8 @@ export default function Appointments() {
     setAssignedDate(defaultDate);
     setAssignedTime(appt.time || CLINIC_20_SLOTS[0]);
     setAssignError(null);
+    setRejectionReason("");
+    setIsRejecting(false);
   }
 
   async function handleApproveWithSchedule() {
@@ -136,6 +141,26 @@ export default function Appointments() {
       console.error("Failed to approve appointment:", err);
       const msg = err instanceof Error ? err.message : "Failed to confirm appointment.";
       setAssignError(msg);
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  async function handleRejectConfirm() {
+    if (!selected) return;
+    if (!rejectionReason.trim()) {
+      alert("Please provide a reason for rejection (e.g., Doctor is unavailable, Center is closed).");
+      return;
+    }
+
+    try {
+      setActionLoading(selected.id);
+      const updated = await appointmentService.rejectAppointmentWithSms(selected.id, rejectionReason);
+      setAppointments((prev) => prev.map((a) => (a.id === selected.id ? updated : a)));
+      setSelected(null);
+    } catch (err) {
+      console.error("Failed to reject appointment:", err);
+      alert("Failed to reject appointment and send SMS.");
     } finally {
       setActionLoading(null);
     }
@@ -518,22 +543,37 @@ export default function Appointments() {
         footer={
           <div className="flex w-full items-center justify-between">
             <div>
-              {selected?.status === "Pending" && (
+              {selected?.status === "Pending" && !isRejecting && (
                 <div className="flex gap-2">
                   <Button
                     variant="outline"
-                    onClick={() => {
-                      if (selected) handleStatusChange(selected.id, "Cancelled");
-                      setSelected(null);
-                    }}
+                    onClick={() => setIsRejecting(true)}
                   >
                     Reject Request
                   </Button>
                   <Button
                     onClick={handleApproveWithSchedule}
-                    isLoading={actionLoading === selected.id}
+                    isLoading={actionLoading === selected?.id}
                   >
                     Approve & Assign Schedule
+                  </Button>
+                </div>
+              )}
+
+              {selected?.status === "Pending" && isRejecting && (
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsRejecting(false)}
+                  >
+                    Back
+                  </Button>
+                  <Button
+                    onClick={handleRejectConfirm}
+                    isLoading={actionLoading === selected?.id}
+                    className="bg-rose-600 hover:bg-rose-700 text-white"
+                  >
+                    Confirm Rejection & Send SMS
                   </Button>
                 </div>
               )}
@@ -575,8 +615,25 @@ export default function Appointments() {
               </span>
             </div>
 
-            {/* Admin Date & Time Selection Section */}
-            {selected.status === "Pending" ? (
+            {/* Rejection input field active if admin clicks Reject */}
+            {selected.status === "Pending" && isRejecting ? (
+              <div className="rounded-xl border border-rose-200 bg-rose-50/50 p-4 dark:border-rose-900/30 dark:bg-rose-950/20">
+                <span className="block font-semibold text-rose-900 dark:text-rose-200 mb-1">
+                  Reason for Rejection / Cancellation *
+                </span>
+                <p className="text-xs text-rose-700 dark:text-rose-400 mb-2">
+                  This note will be sent directly to the patient via SMS (e.g., Doctor is unavailable, Health center is closed).
+                </p>
+                <textarea
+                  value={rejectionReason}
+                  onChange={(e) => setRejectionReason(e.target.value)}
+                  placeholder="Enter reason here..."
+                  className="w-full rounded-xl border border-rose-300 bg-white p-2.5 text-xs text-navy-900 outline-none dark:border-rose-800 dark:bg-navy-900 dark:text-white"
+                  rows={3}
+                  required
+                />
+              </div>
+            ) : selected.status === "Pending" ? (
               <div className="rounded-xl border border-navy-200 bg-navy-50/50 p-4 dark:border-white/10 dark:bg-white/5">
                 <span className="block font-semibold text-navy-900 dark:text-white mb-2">
                   Assign Clinic Appointment Date & Time
@@ -627,6 +684,13 @@ export default function Appointments() {
                 <span className="font-semibold text-ink-900 dark:text-white">
                   {selected.date} at {selected.time}
                 </span>
+              </div>
+            )}
+
+            {selected.rejectionReason && (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 dark:border-rose-900/30 dark:bg-rose-950/30">
+                <span className="block text-xs font-semibold text-rose-800 dark:text-rose-300 mb-1">Cancellation / Rejection Note</span>
+                <p className="text-xs text-rose-900 dark:text-rose-200">{selected.rejectionReason}</p>
               </div>
             )}
 

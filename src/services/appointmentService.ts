@@ -94,6 +94,7 @@ function mapRowToAppointment(row: any): Appointment {
     notes: row.notes,
     idPhotoUrl: row.id_photo_url || row.idPhotoUrl,
     remarks: row.remarks,
+    rejectionReason: row.rejection_reason || row.rejectionReason || undefined,
     completionPhotoUrl: row.completion_photo_url || row.completionPhotoUrl || undefined,
     status: row.status,
     createdAt: row.created_at || row.createdAt,
@@ -249,6 +250,26 @@ export const appointmentService = {
 
     void smsService.sendConfirmed(appointmentId, assignedQueueNumber);
 
+    return mapRowToAppointment(data);
+  },
+
+  async rejectAppointmentWithSms(appointmentId: string, rejectionReason: string): Promise<Appointment> {
+    const { data, error } = await supabase
+      .from("appointments")
+      .update({
+        status: "Cancelled",
+        rejection_reason: rejectionReason.trim(),
+      })
+      .eq("id", appointmentId)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error rejecting appointment:", error.message);
+      throw error;
+    }
+
+    void smsService.sendRejected(appointmentId, rejectionReason);
     return mapRowToAppointment(data);
   },
 

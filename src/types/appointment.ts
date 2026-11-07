@@ -17,6 +17,7 @@ export interface Appointment {
   notes?: string;
   idPhotoUrl?: string;
   remarks?: string;
+  rejectionReason?: string;
   completionPhotoUrl?: string;
   status: AppointmentStatus;
   createdAt: string;
@@ -52,6 +53,7 @@ export interface AppointmentRow {
   notes: string | null;
   id_photo_url: string | null;
   remarks: string | null;
+  rejection_reason?: string | null;
   completion_photo_url: string | null;
   status: AppointmentStatus;
   created_at: string;
